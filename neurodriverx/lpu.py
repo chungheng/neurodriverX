@@ -1,6 +1,4 @@
 import networkx as nx
-import inspect
-from .NDComponents import *
 from collections import OrderedDict
 
 def get_all_subclasses(cls):
@@ -12,7 +10,11 @@ def get_all_subclasses(cls):
 
     return all_subclasses
 
-class Graph(object):
+class LPU(object):
+    """ Local Processing Unit
+
+    LPU is an abstract of a neural circuit consisting of neurons and synapses.
+    """
     def __init__(self):
         self.graph = nx.MultiDiGraph()
         self.modelDefaults = {}
@@ -365,12 +367,12 @@ class Graph(object):
 if __name__ == "__main__":
     from neurokernel.LPU.Graph import Graph
 
-    a = Graph()
+    a = LPU()
     a.add_neuron('1', 'LeakyIAF')
     a.add_neuron('2', 'LeakyIAF')
     a.add_port('1',port='so', selector='xx')
     a.add_synapse('1--2', '1', '2', 'AlphaSynapse')
     a.write_gexf('temp.gexf')
 
-    b = Graph()
+    b = LPU()
     b.read_gexf('temp.gexf')
