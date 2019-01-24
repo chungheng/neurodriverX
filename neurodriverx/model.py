@@ -1,32 +1,29 @@
 import inspect
 import os
+from types import MethodType
 
-from six import with_metaclass, get_function_globals, get_function_code
+from six import with_metaclass, get_function_globals, get_function_code, \
+    StringIO
 
 from pycodegen.codegen import CodeGenerator
-
 
 class _Variable(object):
     default = {
         'type': None,
-        'val': None,
+        'value': None,
     }
-
     def __init__(self, **kwargs):
         for key, val in self.default.items():
             val = kwargs.pop(key, val)
             self.__dict__[key] = val
         if len(kwargs):
             raise AttributeError(', '.join(kwargs.keys()))
-
     def __repr__(self):
-        return "{{type:{}, value:{}}}".format(self.type, self.val)
-
+        return "{{type:{}, value:{}}}".format(self.type, self.value)
     def __setattribute__(self, key, val):
         if key not in self.__dict__:
             raise KeyError("Unrecognized key: {}".format(key))
         self.__dict__[key] = val
-
 
 class VariableAnalyzer(CodeGenerator):
     """
@@ -37,12 +34,11 @@ class VariableAnalyzer(CodeGenerator):
         self.func = func
         self.code = get_function_code(func)
         self.defaults = defaults
-        print(self.code)
 
         self.globals = get_function_globals(self.func)
 
-        input = self._extract_signature(func)
-        self.variables = {k: _Variable(type='input', val=v) for k, v in inputs}
+        inputs = self._extract_signature(func)
+        self.variables = {k:_Variable(type='input', value=v) for k,v in inputs}
 
         with open(os.devnull, 'w') as f:
             CodeGenerator.__init__(self, func, ostream=f)
@@ -68,8 +64,8 @@ class VariableAnalyzer(CodeGenerator):
         narg = int(ins.arg)
 
         args = [] if narg == 0 else self.var[-narg:]
-        func_name = self.var[-(narg + 1)]
-        self.var[-(narg + 1)] = "{}({})".format(func_name, ','.join(args))
+        func_name = self.var[-(narg+1)]
+        self.var[-(narg+1)] = "{}({})".format(func_name , ','.join(args))
 
         if narg:
             del self.var[-narg:]
@@ -82,7 +78,7 @@ class VariableAnalyzer(CodeGenerator):
         assert key == 'self' or key in self.variables or key in self.globals, \
             "Unrecognized variable {}".format(key)
 
-        self.var.append(ins.argval)
+        self.var.append( ins.argval )
 
     def handle_store_fast(self, ins):
         """
