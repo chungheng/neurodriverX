@@ -170,8 +170,9 @@ class ModelMetaClass(type):
             dct[attr[:5]+'s'] = d
         dct['gradients'] = dct['states'].copy()
 
-        _ode = cls._generate_executabale_ode(func, vars)
+        _ode, _ode_src = cls._generate_executabale_ode(func, vars)
         dct['_ode'] = _ode
+        dct['_ode_src'] = _ode_src
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
@@ -190,7 +191,7 @@ class ModelMetaClass(type):
         ode = locs['ode']
         del locs
 
-        return ode
+        return ode, src
 
 class Model(with_metaclass(ModelMetaClass, object)):
     defaults = dict()
