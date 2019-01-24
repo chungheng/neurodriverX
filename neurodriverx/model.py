@@ -39,7 +39,9 @@ class VariableAnalyzer(CodeGenerator):
         self.globals = get_function_globals(self.func)
 
         inputs = self._extract_signature(func)
-        self.variables = {k:_Variable(type='input', value=v) for k,v in inputs}
+        self.variables = {}
+        for key, val in inputs:
+            self.variables[key] = _Variable(type='input', value=val, name=key)
 
         with open(os.devnull, 'w') as f:
             CodeGenerator.__init__(self, func, ostream=f)
@@ -165,11 +167,10 @@ class ModelMetaClass(type):
              assert key in vars, "Unused variable {} in {}".format(key, clsname)
 
         dct.update(vars)
+        dct['vars'] = [v.name for v in vars.values() if v.type != 'local']
 
-        for attr in ['inter', 'param', 'state']:
+        for attr in ['inter', 'param', 'state', 'local', 'input']:
             dct[attr] = {k:v.value for k,v in vars.items() if v.type == attr}
-
-        dct['grad'] = dct['state'].copy()
 
         _ode, _ode_src = cls._generate_executabale_ode(func, vars)
         dct['_ode'] = _ode
@@ -194,11 +195,27 @@ class ModelMetaClass(type):
 
         return ode, src
 
+    def __getitem__(cls, key):
+        var = getattr(cls, key, None)
+        if var is None:
+            raise AttributeError(key)
+        dct = getattr(cls, var.type)
+        return dct[key]
+
+
 class Model(with_metaclass(ModelMetaClass, object)):
     defaults = dict()
 
     def __init__(self,  **kwargs):
-        pass
+        self.param = self.__class__.param.copy()
+        self.inter = self.__class__.inter.copy()
+        self.state = self.__class__.state.copy()
+        self.grad = self.__class__.state.copy()
+
+        for key in list(kwargs.keys()):
+            var = getattr(self, key)
+            dct = getattr(self, var.type)
+            dct[key] = kwargs.pop(key)
 
     def __getitem__(self, key):
         var = getattr(self, key, None)
