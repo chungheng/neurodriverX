@@ -10,6 +10,7 @@ from pycodegen.codegen import CodeGenerator
 class _Variable(object):
     default = {
         'type': None,
+        'name': None,
         'value': None,
     }
     def __init__(self, **kwargs):
@@ -75,7 +76,7 @@ class VariableAnalyzer(CodeGenerator):
         """
         key = ins.argval
         if key not in self.variables:
-            self.variables[key] = _Variable(type='local')
+            self._set_variable(key, type='local')
         self.var[-1] = "{} = {}".format(key, self.var[-1])
 
     def handle_load_attr(self, ins):
@@ -87,7 +88,7 @@ class VariableAnalyzer(CodeGenerator):
                 key = key.split('d_')[-1]
                 self._set_variable(key, type='state')
             elif key not in self.variables:
-                self._set_variable(key, type='parameter')
+                self._set_variable(key, type='param')
             self.var[-1] = key
         else:
             self.var[-1] += "." + key
@@ -101,24 +102,24 @@ class VariableAnalyzer(CodeGenerator):
                 key = key.split('d_')[-1]
                 self._set_variable(key, type='state')
             elif key not in self.variables:
-                self._set_variable(key, type='intermediate')
+                self._set_variable(key, type='inter')
             self.var[-1] = key
         else:
             self.var[-1] += "{}.{}".format(self.var[-1], key)
         self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
         del self.var[-1]
 
-    def _set_variable(self, var_name, **kwargs):
-        var_type = kwargs['type']
-        if var_type != 'local':
-            assert var_name in self.defaults, \
-                "Missing default value for Variable {}".format(var_name)
-        if var_name not in self.variables:
-            val = self.defaults.get(var_name, None)
-            self.variables[var_name] = _Variable(type=var_type, value=val)
+    def _set_variable(self, name, **kwargs):
+        t = kwargs['type']
+        if t != 'local':
+            assert name in self.defaults, \
+                "Missing default value for Variable {}".format(name)
+        if name not in self.variables:
+            val = self.defaults.get(name, None)
+            self.variables[name] = _Variable(type=t, value=val, name=name)
 
         for key, val in kwargs.items():
-            setattr(self.variables[var_name], key, val)
+            setattr(self.variables[name], key, val)
 
 class OdeGenerator(CodeGenerator):
     def __init__(self, func, variables, **kwargs):
@@ -141,11 +142,11 @@ class OdeGenerator(CodeGenerator):
         if self.var[-1] == 'self':
             if 'd_' in key:
                 key = key.split('d_')[-1]
-                self.var[-1] += ".gradients['%s']" % key
+                self.var[-1] += ".grad['%s']" % key
                 return
 
             if key in self.variables:
-                attr = self.variables[key].type[:5] + 's'
+                attr = self.variables[key].type
                 self.var[-1] += ".%s['%s']" % (attr, key)
                 return
         self.var[-1] += ".%s" % key
@@ -165,10 +166,10 @@ class ModelMetaClass(type):
 
         dct.update(vars)
 
-        for attr in ['intermediate', 'parameter', 'state']:
-            d = {k:v.value for k,v in vars.items() if v.type == attr}
-            dct[attr[:5]+'s'] = d
-        dct['gradients'] = dct['states'].copy()
+        for attr in ['inter', 'param', 'state']:
+            dct[attr] = {k:v.value for k,v in vars.items() if v.type == attr}
+
+        dct['grad'] = dct['state'].copy()
 
         _ode, _ode_src = cls._generate_executabale_ode(func, vars)
         dct['_ode'] = _ode
@@ -203,14 +204,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
         var = getattr(self, key, None)
         if var is None:
             raise AttributeError(key)
-        dct = getattr(self, var.type[:5] + 's')
+        dct = getattr(self, var.type)
         return dct[key]
 
     def __setitem__(self, key, value):
         var = getattr(self, key, None)
         if var is None:
             raise AttributeError(key)
-        dct = getattr(self, var.type[:5] + 's')
+        dct = getattr(self, var.type)
         dct[key] = value
 
     def ode(self):
