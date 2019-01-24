@@ -60,16 +60,6 @@ class VariableAnalyzer(CodeGenerator):
             "Missing defaults for {}".format(args[0])
         return list(zip(args, defaults))
 
-    def handle_call_function(self, ins):
-        narg = int(ins.arg)
-
-        args = [] if narg == 0 else self.var[-narg:]
-        func_name = self.var[-(narg+1)]
-        self.var[-(narg+1)] = "{}({})".format(func_name , ','.join(args))
-
-        if narg:
-            del self.var[-narg:]
-
     def handle_load_fast(self, ins):
         """
         """
