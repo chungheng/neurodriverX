@@ -90,7 +90,7 @@ class VariableAnalyzer(CodeGenerator):
                 self._set_variable(key, type='parameter')
             self.var[-1] = key
         else:
-            self.var[-1] += "." + ins.arg_name
+            self.var[-1] += "." + key
 
     def handle_store_attr(self, ins):
         """
