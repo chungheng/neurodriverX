@@ -124,30 +124,88 @@ class VariableAnalyzer(CodeGenerator):
             assert var_name in self.defaults, \
                 "Missing default value for Variable {}".format(var_name)
         if var_name not in self.variables:
-            self.variables[var_name] = _Variable(type=var_type)
+            val = self.defaults.get(var_name, None)
+            self.variables[var_name] = _Variable(type=var_type, value=val)
 
         for key, val in kwargs.items():
             setattr(self.variables[var_name], key, val)
 
+class OdeGenerator(CodeGenerator):
+    def __init__(self, func, variables, **kwargs):
+        self.func = func
+        self.code = get_function_code(func)
+        self.variables = variables
+
+        CodeGenerator.__init__(self, self.func,  offset=4, ostream=StringIO())
+
+    def generate(self):
+        signature = inspect.signature(self.func)
+        self.ostream.write("def ode{}:\n".format(str(signature)))
+
+        super(OdeGenerator, self).generate()
+
+        return self.ostream.getvalue()
+
+    def handle_load_attr(self, ins):
+        key = ins.argval
+        if self.var[-1] == 'self':
+            if 'd_' in key:
+                key = key.split('d_')[-1]
+                self.var[-1] += ".gradients['%s']" % key
+                return
+
+            if key in self.variables:
+                attr = self.variables[key].type[:5] + 's'
+                self.var[-1] += ".%s['%s']" % (attr, key)
+                return
+        self.var[-1] += ".%s" % key
 
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
 
-        ode = dct['ode']
         defaults = dct['defaults']
-        # extract input argument of ode
-        variables = cls._analyze_variable(func=ode, defaults=defaults)
+        # extract variables from member functions
+        vars = {}
+        for key in ['ode']:
+            func = dct[key]
+            vars.update(cls._analyze_variable(func, defaults))
+
+        for key in defaults:
+             assert key in vars, "Unused variable {} in {}".format(key, clsname)
+
+        dct.update(vars)
+
+        for attr in ['intermediate', 'parameter', 'state']:
+            d = {k:v.value for k,v in vars.items() if v.type == attr}
+            dct[attr[:5]+'s'] = d
+        dct['gradients'] = dct['states'].copy()
+
+        _ode = cls._generate_executabale_ode(func, vars)
+        dct['_ode'] = _ode
+
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
     def _analyze_variable(func, defaults):
         var_analyzer = VariableAnalyzer(func, defaults)
         return var_analyzer.variables
 
+    def _generate_executabale_ode(func, variables):
+
+        codegen = OdeGenerator(func, variables=variables)
+        src = codegen.generate()
+        co = compile(src, '<string>', 'exec')
+        locs = dict()
+        globals = dict.copy(get_function_globals(func))
+        eval(co, globals, locs)
+        ode = locs['ode']
+        del locs
+
+        return ode
 
 class Model(with_metaclass(ModelMetaClass, object)):
     defaults = dict()
 
-    def __init__(self):
+    def __init__(self,  **kwargs):
         pass
 
     def ode(self):
