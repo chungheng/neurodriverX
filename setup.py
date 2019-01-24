@@ -63,5 +63,6 @@ if __name__ == "__main__":
         maintainer_email = MAINTAINER_EMAIL,
         packages=PACKAGES,
         install_requires=[
+            'networkx' >= 2.0,
         ]
     )
