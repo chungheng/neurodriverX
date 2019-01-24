@@ -199,5 +199,19 @@ class Model(with_metaclass(ModelMetaClass, object)):
     def __init__(self,  **kwargs):
         pass
 
+    def __getitem__(self, key):
+        var = getattr(self, key, None)
+        if var is None:
+            raise AttributeError(key)
+        dct = getattr(self, var.type[:5] + 's')
+        return dct[key]
+
+    def __setitem__(self, key, value):
+        var = getattr(self, key, None)
+        if var is None:
+            raise AttributeError(key)
+        dct = getattr(self, var.type[:5] + 's')
+        dct[key] = value
+
     def ode(self):
         pass
