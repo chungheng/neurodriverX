@@ -1,12 +1,15 @@
+import copy
+import types
 import networkx as nx
 from collections import OrderedDict
+from .model import Model
 
 def get_all_subclasses(cls):
-    all_subclasses = []
+    all_subclasses = {}
 
     for subclass in cls.__subclasses__():
-        all_subclasses.append(subclass)
-        all_subclasses.extend(get_all_subclasses(subclass))
+        all_subclasses[subclass.__name__] = subclass
+        all_subclasses.update(get_all_subclasses(subclass))
 
     return all_subclasses
 
@@ -17,187 +20,61 @@ class LPU(object):
     """
     def __init__(self):
         self.graph = nx.MultiDiGraph()
-        self.modelDefaults = {}
+        self.Model_Defaults = {}
 
-    def _str_to_model(self, model):
+    def _get_model(self, model):
 
-        modules = get_all_subclasses(NDComponent.NDComponent)
-        modules = {x.__name__.encode('utf-8'): x for x in modules}
         if type(model) is str:
-            model = model.encode('utf-8')
-            if model in modules:
-                model = modules[model]
+            models = get_all_subclasses(Model)
+            if model in models:
+                return models[model]
             else:
-                raise TypeError("Unsupported model type %r" % model)
+                raise TypeError("Unsupported model type {}".format(model))
+
+        if isinstance(model, type):
+            assert issubclass(model, Model)
+        else:
+            assert isinstance(model, Model)
+            model = model.__class__
+
         return model
 
-    def _parse_model_kwargs(self, model, **kwargs):
-        params = kwargs.pop('params', dict())
-        states = kwargs.pop('states', dict())
-        model = self._str_to_model(model)
-
-        if model not in self.modelDefaults:
-            self.set_model_default(model)
-
-        assert(set(params.keys()) <= set(self.modelDefaults[model]['params']))
-        assert(set(states.keys()) <= set(self.modelDefaults[model]['states']))
-
-        kwargs.update(params)
-        kwargs.update(states)
-        attrs = {'class':model}
-
-        for k,v in self.modelDefaults[model]['params'].items():
-            attrs[k] = kwargs.pop(k, v)
-        for k,v in self.modelDefaults[model]['states'].items():
-            attrs[k] = kwargs.pop(k, v)
-
-        attrs.update(kwargs)
-        return attrs
-
-    def connect_port(self, x, y, **kwargs):
-        """Connect a port to a node.
-
+    def _parse_model_kwargs(self, obj, **kwargs):
+        """
         Parameters
         ----------
-        x : hashable Python object
-            A hashable Python object except None. 'x' has to be an existing
-            node or port.
-        y : hashable Python object
-            A hashable Python object except None. 'y' has to be an existing
-            node or port.
-        kwargs: dict
-            Addtional keyword arguments, for example, delay.
-
-        Examples
-        --------
-        >>> G = Graph()
-        >>> G.add_neuron('1', 'LeakyIAF')
-        >>> G.add_port('1_port', '/lpu/out/spike/1', port='so')
-        >>> G.connect_port('1', '1_port')
-
-        Notes
-        -----
-        One and only one of 'x' and 'y' must be an existing port, and the
-        other has to be an existing node. The direction of the connection will
-        be inferred from the port's 'port_io' attribute.
+        obj : str, instance of `Model`, or subclass of `Model`
+            A node can be any hashable Python object except None.
+        kwargs : dict
+            Key/Value pairs of extra attributes. Key could be an attribute in
+            params or states.
         """
-        x_is_port = self.graph.node[x]['class'] == u'Port'
-        y_is_port = self.graph.node[y]['class'] == u'Port'
+        model = self._get_model(obj)
 
-        assert(not(x_is_port == y_is_port))
+        if model in self.Model_Defaults:
+            model = self.Model_Defaults[model]
 
-        if x_is_port:
-            port = x
-            node = y
+        obj = obj if isinstance(obj, Model) else model
+        dct = {key:obj[key] for key in model.vars}
+        dct['model'] = model
+
+        for key, val in kwargs.items():
+            assert key in dct
+            dct[key] = val
+        return dct
+
+    def set_model_default(self, obj, **kwargs):
+        model = self._get_model(obj)
+
+        if isinstance(obj, Model):
+            obj = copy.deepcopy(obj)
         else:
-            port = y
-            node = x
+            obj = model()
 
-        if self.graph.node[port]['port_io'] == 'out':
-            self.graph.add_edge(node, port, **kwargs)
-        else:
-            self.graph.add_edge(port, node, **kwargs)
+        for key, val in kwargs.items():
+            obj[key] = val
 
-    def add_port(self, node, **kwargs):
-        """Add a single port.
-
-        Parameters
-        ----------
-        node : hashable Python object
-            A hashable Python object except None. If 'node' is an existing
-            node, a neuron or a synapse, 'node' will be inferred using the
-            convention 'node' + "_port".
-        selector : string
-            A xpath-like string.
-        port_type : string
-            Either 'spike'/'s' or 'gpot'/'g'.
-        port_io : string
-            Either 'in'/'i' or 'out'/'o'.
-        port : string
-            Short notation for 'port_type' and 'port_io'. 'port' can be any
-            combination of ['s','g'] cross ['i','o']. For example, 'so' or 'ig'.
-            'port' has higher priority than 'port_io' and 'port_type'.
-        source_or_target : hashable Python object or None
-            The source or the target of the port, depending on 'port_type'.
-            If 'node' is an existing node, 'source_or_target' should be given
-            as None, and will be replaced by 'node'. If 'source_or_target' is
-            not None or inferred from 'node', the connection between the port
-            and its correcsponding node will be set up.
-
-        Examples
-        --------
-        >>> G = Graph()
-        >>> G.add_neuron('1', 'LeakyIAF')
-        >>> G.add_port('1_port', '/lpu/out/spike/1', port='so')
-        >>> G.connect_port('1', '1_port')
-
-        It is recommended to pass an exisitng node as 'node' to add port. By
-        doing so, the id of the port will be inferred, and the link between
-        the port and the exsiting node will be connected automatically.
-
-        >>> G = Graph()
-        >>> G.add_neuron('1', 'LeakyIAF')
-        >>> G.add_port('1', port='so')
-
-        Alternatively, one can specify the port 'node'. In this case, it is of
-        best practice to provide 'source_or_target'. Otherwise, 'connect_port'
-        has to be called later to connect the port and its correcsponding node,
-        as demonstrated in the first example.
-
-        >>> G = Graph()
-        >>> G.add_neuron('1', 'LeakyIAF')
-        >>> G.add_port('special_port', port='so', source_or_target='1')
-
-
-        Notes
-        -----
-        A hashable object is one that can be used as a key in a Python
-        dictionary. This includes strings, numbers, tuples of strings
-        and numbers, etc.
-        """
-        selector = kwargs.pop('selector', None)
-        assert(selector is not None)
-
-        port_io = kwargs.pop('port_io', '')
-        port_type = kwargs.pop('port_type', '')
-        port = kwargs.pop('port', '')
-        source_or_target = kwargs.pop('source_or_target', None)
-
-        is_s, is_g, is_i, is_o = map(lambda x: x in port, ('s','g','i','o'))
-        assert(not(is_s and is_g))
-        assert(not(is_o and is_i))
-
-        if is_s or port_type == 's':
-            port_type = 'spike'
-        elif is_g or port_type == 'g':
-            port_type = 'gpot'
-        assert(port_type == 'gpot' or port_type == 'spike')
-
-        if is_i or port_io == 'i':
-            port_io = 'in'
-        elif is_o or port_io == 'o':
-            port_io = 'out'
-        assert(port_io == 'in' or port_io == 'out')
-
-        if node in self.graph:
-            assert(source_or_target is None)
-            source_or_target = node
-            node = "%s_port" % node
-
-        kwargs['class'] = u'Port'
-        delay = self._get_delay(kwargs)
-        self.graph.add_node(node,
-            **kwargs,
-            port_io = port_io,
-            port_type = port_type,
-            selector = selector)
-
-        if source_or_target is not None:
-            assert(source_or_target in self.graph)
-            if port_io == 'out':
-                self.graph.add_edge(source_or_target, node)
-            else:
-                self.graph.add_edge(node, source_or_target, **delay)
+        self.Model_Defaults[model] = obj
 
     def add_neuron(self, node, model, **kwargs):
         """Add a single neuron.
@@ -206,13 +83,9 @@ class LPU(object):
         ----------
         node : node
             A node can be any hashable Python object except None.
-        model : string or submodule of NDComponent
+        model : string, submodule of Model, or instance of Model
             Name or the Python class of a neuron model.
-        params: dict
-            Parameters of the neuron model.
-        states: dict
-            Initial values of the state variables of the neuron model.
-        kwargs:
+        kwargs : dict
             Key/Value pairs of extra attributes. Key could be an attribute in
             params or states.
 
@@ -220,8 +93,11 @@ class LPU(object):
         --------
         >>> G = Graph()
         >>> G.add_neuron(1, 'LeakyIAF')
-        >>> G.add_neuron(2, 'HodgkinHuxley', states={'n':0., 'm':0., 'h':1.})
-        >>> G.add_neuron(1, 'LeakyIAF', threshould=5)
+        >>> G.add_neuron(2, HodgkinHuxley)
+        >>> G.add_neuron(3, 'LeakyIAF', threshould=5)
+
+        >>> hh = HodgkinHuxley(gNa = 32.)
+        >>> G.add_neuron(3, hh)
 
         Notes
         -----
@@ -229,36 +105,20 @@ class LPU(object):
         dictionary. This includes strings, numbers, tuples of strings
         and numbers, etc.
         """
-        attrs = self._parse_model_kwargs(model, **kwargs)
+        dct = self._parse_model_kwargs(model, **kwargs)
 
-        self.graph.add_node(node, **attrs)
+        self.graph.add_node(node, **dct)
 
-    def set_model_default(self, model, **kwargs):
-        model = self._str_to_model(model)
-        self.modelDefaults[model] = {
-            'params': model.params.copy(),
-            'states': model.states.copy()
-        }
-        self.update_model_default(model, **kwargs)
 
-    def update_model_default(self, model, **kwargs):
-        for k,v in kwargs.items():
-            for p in ('states', 'params'):
-                if k == p:
-                    self.modelDefaults[model] = v
-                    break
-                attr = self.modelDefaults[model][p]
-                if k in attr:
-                    attr[k] = v
-                    break
-
-    def add_synapse(self, node, source, target, model, **kwargs):
+    def add_synapse(self, node, model, source, target, **kwargs):
         """Add a single synapse.
 
         Parameters
         ----------
         node : hashable
             A node can be any hashable Python object except None.
+        model : string or submodule of NDComponent
+            Name or the Python class of a neuron model.
         source : hashable or None
             A source can be any hashable Python object except None. The hash
             value of the pre-synaptic neuron. If None, the edge between 'source'
@@ -267,8 +127,6 @@ class LPU(object):
             A target can be any hashable Python object except None. The hash
             value of the post-synaptic neuron. If None, the edge between
             'target' and 'node' will be omitted.
-        model : string or submodule of NDComponent
-            Name or the Python class of a neuron model.
         params : dict
             Parameters of the neuron model.
         states : dict
@@ -292,8 +150,7 @@ class LPU(object):
         dictionary. This includes strings, numbers, tuples of strings
         and numbers, etc.
         """
-        attrs = self._parse_model_kwargs(model, **kwargs)
-        delay = self._get_delay(attrs)
+        dct = self._parse_model_kwargs(model, **kwargs)
 
         self.graph.add_node(node, **attrs)
 
@@ -364,12 +221,13 @@ class LPU(object):
     def issynapse(self, n):
         return issubclass(n['class'], BaseSynapsekModel.BaseSynapsekModel)
 
+
 if __name__ == "__main__":
-    from neurokernel.LPU.Graph import Graph
 
     a = LPU()
     a.add_neuron('1', 'LeakyIAF')
     a.add_neuron('2', 'LeakyIAF')
+    a.add_neuron('3', LeakyIAF)
     a.add_port('1',port='so', selector='xx')
     a.add_synapse('1--2', '1', '2', 'AlphaSynapse')
     a.write_gexf('temp.gexf')
