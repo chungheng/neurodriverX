@@ -22,22 +22,25 @@ class LPU(object):
         self.graph = nx.MultiDiGraph()
         self.Model_Defaults = {}
 
-    def _get_model(self, model):
-
-        if type(model) is str:
-            models = get_all_subclasses(Model)
-            if model in models:
-                return models[model]
+    def _get_class(self, obj):
+        """
+        Parameters
+        ----------
+        obj : str, instance of `Model`, or subclass of `Model`
+        """
+        if type(obj) is str:
+            classes = get_all_subclasses(Model)
+            if obj in classes:
+                return classes[obj]
             else:
-                raise TypeError("Unsupported model type {}".format(model))
+                raise TypeError("Unsupported model type {}".format(obj))
 
-        if isinstance(model, type):
-            assert issubclass(model, Model)
+        if isinstance(obj, type):
+            assert issubclass(obj, Model)
+            return obj
         else:
-            assert isinstance(model, Model)
-            model = model.__class__
-
-        return model
+            assert isinstance(obj, Model)
+            return obj.__class__
 
     def _parse_model_kwargs(self, obj, **kwargs):
         """
@@ -48,42 +51,39 @@ class LPU(object):
         kwargs : dict
             Key/Value pairs of extra attributes. Key could be an attribute in
             params or states.
+
+        Returns
+        -------
+        new_obj : an instnace of Model
         """
-        model = self._get_model(obj)
-
-        if model in self.Model_Defaults:
-            model = self.Model_Defaults[model]
-
-        obj = obj if isinstance(obj, Model) else model
-        dct = {key:obj[key] for key in model.vars}
-        dct['model'] = model
-
-        for key, val in kwargs.items():
-            assert key in dct
-            dct[key] = val
-        return dct
-
-    def set_model_default(self, obj, **kwargs):
-        model = self._get_model(obj)
+        _class = self._get_class(obj)
 
         if isinstance(obj, Model):
-            obj = copy.deepcopy(obj)
+            new_obj = copy.deepcopy(obj)
+        elif _class in self.Model_Defaults:
+            new_obj = copy.deepcopy(self.Model_Defaults[_class])
         else:
-            obj = model()
+            new_obj = _class()
 
         for key, val in kwargs.items():
-            obj[key] = val
+            assert key in new_obj.vars
+            new_obj[key] = val
 
-        self.Model_Defaults[model] = obj
+        return new_obj
 
-    def add_neuron(self, node, model, **kwargs):
+    def set_model_default(self, obj, **kwargs):
+        new_obj = self._parse_model_kwargs(obj, **kwargs)
+
+        self.Model_Defaults[model] = new_obj
+
+    def add_neuron(self, node, obj, **kwargs):
         """Add a single neuron.
 
         Parameters
         ----------
         node : node
             A node can be any hashable Python object except None.
-        model : string, submodule of Model, or instance of Model
+        obj : string, submodule of Model, or instance of Model
             Name or the Python class of a neuron model.
         kwargs : dict
             Key/Value pairs of extra attributes. Key could be an attribute in
@@ -105,10 +105,11 @@ class LPU(object):
         dictionary. This includes strings, numbers, tuples of strings
         and numbers, etc.
         """
-        dct = self._parse_model_kwargs(model, **kwargs)
+        new_obj = self._parse_model_kwargs(obj, **kwargs)
 
-        self.graph.add_node(node, **dct)
+        self.graph.add_node(node, model=new_obj)
 
+        return new_obj
 
     def add_synapse(self, node, model, source, target, **kwargs):
         """Add a single synapse.
