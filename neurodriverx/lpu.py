@@ -65,14 +65,14 @@ class LPU(object):
         else:
             new_obj = _class()
 
-        for key, val in kwargs.items():
-            assert key in new_obj.vars
-            new_obj[key] = val
-
         return new_obj
 
     def set_model_default(self, obj, **kwargs):
         new_obj = self._parse_model_kwargs(obj, **kwargs)
+
+        for key, val in kwargs.items():
+            assert key in new_obj.vars
+            new_obj[key] = val
 
         self.Model_Defaults[model] = new_obj
 
@@ -106,6 +106,10 @@ class LPU(object):
         and numbers, etc.
         """
         new_obj = self._parse_model_kwargs(obj, **kwargs)
+
+        for key, val in kwargs.items():
+            assert key in new_obj.vars
+            new_obj[key] = val
 
         self.graph.add_node(node, model=new_obj)
 
