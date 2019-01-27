@@ -42,7 +42,7 @@ class LPU(object):
             assert isinstance(obj, Model)
             return obj.__class__
 
-    def _parse_model_kwargs(self, obj, **kwargs):
+    def _get_model_instance(self, obj):
         """
         Parameters
         ----------
@@ -68,7 +68,7 @@ class LPU(object):
         return new_obj
 
     def set_model_default(self, obj, **kwargs):
-        new_obj = self._parse_model_kwargs(obj, **kwargs)
+        new_obj = self._get_model_instance(obj, **kwargs)
 
         for key, val in kwargs.items():
             assert key in new_obj.vars
@@ -105,7 +105,7 @@ class LPU(object):
         dictionary. This includes strings, numbers, tuples of strings
         and numbers, etc.
         """
-        new_obj = self._parse_model_kwargs(obj, **kwargs)
+        new_obj = self._get_model_instance(obj, **kwargs)
 
         for key, val in kwargs.items():
             assert key in new_obj.vars
