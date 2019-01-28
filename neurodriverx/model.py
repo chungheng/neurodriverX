@@ -237,3 +237,39 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
     def ode(self):
         pass
+
+class modeldict(collections.MutableMapping):
+    """A dictionary that applies an arbitrary key-altering
+       function before accessing the keys"""
+
+    def __init__(self, *args, **kwargs):
+        self.store = dict()
+        self.update(dict(*args, **kwargs))  # use the free update to set keys
+        if 'id' not in self.store:
+            self.store['id'] = None
+
+    def __getitem__(self, key):
+        return self.store[key]
+
+    def __setitem__(self, key, value):
+        self.store[key] = value
+
+    def __delitem__(self, key):
+        del self.store[key]
+
+    def __iter__(self):
+        return iter(self.store)
+
+    def __len__(self):
+        return len(self.store)
+
+    def __repr__(self):
+        return repr(self.store)
+
+    def __getattr__(self, key):
+        model = self.store['model']
+        if key in model.vars:
+            var = copy.deepcopy(getattr(model, key))
+            var.id = self.store['id']
+            return var
+        return super(modeldict, self).__getattribute__(key)
