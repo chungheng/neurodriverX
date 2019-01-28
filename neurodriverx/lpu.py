@@ -58,6 +58,7 @@ class LPU(object):
         -------
         new_obj : an instnace of Model
         """
+        id = kwargs.pop('id', '')
         _class = self._get_class(obj)
 
         if isinstance(obj, Model):
@@ -67,26 +68,59 @@ class LPU(object):
         else:
             new_obj = _class()
 
-        return new_obj
-
-    def _set_input_to_node(self):
-        pass
-
-    def set_model_default(self, obj, **kwargs):
-        new_obj = self._get_model_instance(obj, **kwargs)
-
         for key, val in kwargs.items():
             assert key in new_obj.vars
             new_obj[key] = val
 
-        self.Model_Defaults[model] = new_obj
+        return new_obj
+
+    def _get_model_attributes(self, obj, **kwargs):
+        """
+        Parameters
+        ----------
+        obj : str, instance of `Model`, or subclass of `Model`
+            A node can be any hashable Python object except None.
+        kwargs : dict
+            Key/Value pairs of extra attributes. Key could be an attribute in
+            params or states.
+
+        Returns
+        -------
+        new_obj : an instnace of Model
+        """
+        _class = self._get_class(obj)
+
+        if isinstance(obj, Model):
+            new_obj = obj
+        elif _class in self.Model_Defaults:
+            new_obj = self.Model_Defaults[_class]
+        else:
+            new_obj = _class
+
+        attr = {key: kwargs.pop(key, new_obj[key]) for key in new_obj.vars}
+        attr = {'model': _class, 'id': kwargs.pop('id', '')}
+        for key in new_obj.vars:
+            val = kwargs.pop(key, new_obj[key])
+            if not isinstance(val, numbers.Number):
+                raise ValueError("Variable {} should be a number".format(key))
+            attr[key] = val
+
+        if len(kwargs):
+            raise KeyError(kwargs.keys())
+
+        return attr
+
+    def set_model_default(self, obj, **kwargs):
+        attr = self._get_model_attributes(obj, **kwargs)
+
+        self.Model_Defaults[attr['model']] = attr
 
     def add_neuron(self, node, obj, **kwargs):
         """Add a single neuron.
 
         Parameters
         ----------
-        node : node
+        name : str
             A node can be any hashable Python object except None.
         obj : string, submodule of Model, or instance of Model
             Name or the Python class of a neuron model.
@@ -176,6 +210,38 @@ class LPU(object):
         self.graph.add_node(name, model=new_obj)
 
         return new_obj
+
+
+    def add(self, id, obj, inputs=None, outputs=None, **kwargs):
+        """Add a single synapse.
+
+        Parameters
+        ----------
+        id : str
+        obj : string, subclass of Model, or instance of Model
+            Name or the Python class of a neuron model.
+        inputs :
+        outputs :
+        kwargs:
+            Key/Value pairs of extra attributes. Key could be an attribute in
+            params or states.
+
+        Examples
+        --------
+        >>> G = Graph()
+        >>> G.add_neuron('1', 'LeakyIAF')
+        >>> G.add_neuron('2', 'HodgkinHuxley', states={'n':0., 'm':0., 'h':1.})
+        >>> G.add_synapse('1->2', '1', '2', 'AlphaSynapse')
+
+        Notes
+        -----
+        """
+
+        attr = self._get_model_attributes(obj, id=id, **kwargs)
+
+        self.graph.add_node(id, **attr)
+
+        return self.graph.nodes[id]
 
     def _get_delay(self, attrs):
         delay = attrs.pop('delay', None)
