@@ -2,7 +2,8 @@ import copy
 import types
 import networkx as nx
 from collections import OrderedDict
-from .model import Model
+from .model import Model, modeldict
+import numbers
 
 def get_all_subclasses(cls):
     all_subclasses = {}
@@ -20,6 +21,7 @@ class LPU(object):
     """
     def __init__(self):
         self.graph = nx.MultiDiGraph()
+        self.graph.node_attr_dict_factory = modeldict
         self.Model_Defaults = {}
 
     def _get_class(self, obj):
