@@ -67,6 +67,9 @@ class LPU(object):
 
         return new_obj
 
+    def _set_input_to_node(self):
+        pass
+
     def set_model_default(self, obj, **kwargs):
         new_obj = self._get_model_instance(obj, **kwargs)
 
@@ -155,14 +158,22 @@ class LPU(object):
         dictionary. This includes strings, numbers, tuples of strings
         and numbers, etc.
         """
-        dct = self._parse_model_kwargs(model, **kwargs)
+        new_obj = self._get_model_instance(obj, **kwargs)
 
-        self.graph.add_node(node, **attrs)
+        for key, val in kwargs.items():
+            if isinstance(val, numbers.Number):
+                assert key in new_obj.vars
+                new_obj[key] = val
+            elif key is in new_obj.input:
+                self._set_input_to_node(val, new_obj, None, key)
+            elif key is in new_obj.state or key is in new_obj.inter:
+                self._set_input_to_node(new_obj, val, key, None)
+            else:
+                raise KeyError(key)
 
-        if source:
-            self.graph.add_edge(source, node, **delay)
-        if target:
-            self.graph.add_edge(node, target)
+        self.graph.add_node(name, model=new_obj)
+
+        return new_obj
 
     def _get_delay(self, attrs):
         delay = attrs.pop('delay', None)
