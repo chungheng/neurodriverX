@@ -1,5 +1,8 @@
+
+import copy
 import inspect
 import os
+import collections
 from types import MethodType
 
 from six import with_metaclass, get_function_globals, get_function_code, \
@@ -9,6 +12,7 @@ from pycodegen.codegen import CodeGenerator
 
 class _Variable(object):
     default = {
+        'id': None,
         'type': None,
         'name': None,
         'value': None,
@@ -207,15 +211,15 @@ class Model(with_metaclass(ModelMetaClass, object)):
     defaults = dict()
 
     def __init__(self,  **kwargs):
+        self.id = kwargs.pop('id', '')
+
         self.param = self.__class__.param.copy()
         self.inter = self.__class__.inter.copy()
         self.state = self.__class__.state.copy()
         self.grad = self.__class__.state.copy()
 
-        for key in list(kwargs.keys()):
-            var = getattr(self, key)
-            dct = getattr(self, var.type)
-            dct[key] = kwargs.pop(key)
+        for key, val in kwargs.items():
+            self[key] = val
 
     def __getitem__(self, key):
         var = getattr(self, key, None)
