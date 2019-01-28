@@ -44,7 +44,7 @@ class LPU(object):
             assert isinstance(obj, Model)
             return obj.__class__
 
-    def _get_model_instance(self, obj):
+    def _get_model_instance(self, obj, **kwargs):
         """
         Parameters
         ----------
@@ -166,9 +166,9 @@ class LPU(object):
             if isinstance(val, numbers.Number):
                 assert key in new_obj.vars
                 new_obj[key] = val
-            elif key is in new_obj.input:
+            elif key in new_obj.input:
                 self._set_input_to_node(val, new_obj, None, key)
-            elif key is in new_obj.state or key is in new_obj.inter:
+            elif key in new_obj.state or key in new_obj.inter:
                 self._set_input_to_node(new_obj, val, key, None)
             else:
                 raise KeyError(key)
