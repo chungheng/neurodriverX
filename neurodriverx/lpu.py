@@ -228,10 +228,16 @@ class LPU(object):
 
         Examples
         --------
-        >>> G = Graph()
-        >>> G.add_neuron('1', 'LeakyIAF')
-        >>> G.add_neuron('2', 'HodgkinHuxley', states={'n':0., 'm':0., 'h':1.})
-        >>> G.add_synapse('1->2', '1', '2', 'AlphaSynapse')
+        >>> g = LPU()
+        >>> g.add('1', 'HodgkinHuxley')
+        >>> g.add('2', HodgkinHuxley, v=3)
+        >>> hh = HodgkinHuxley(v=4)
+        >>> neu = g.add('3', hh)
+
+        >>> g.add('1-2', AMPA, inputs='1.spike', outputs='2.I')
+        >>> g.add('3-2', AMPA, inputs=neu.spike, outputs='2.I')
+        >>> g.add('3-1', AMPA, inputs=neu.spike, outputs='1')
+        >>> g.add('2-3', AMPA, inputs='2', outputs=neu)
 
         Notes
         -----
