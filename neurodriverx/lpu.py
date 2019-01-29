@@ -2,7 +2,7 @@ import copy
 import types
 import networkx as nx
 from collections import OrderedDict
-from .model import Model, modeldict
+from .model import Model, modeldict, _Variable
 import numbers
 
 def get_all_subclasses(cls):
@@ -242,6 +242,83 @@ class LPU(object):
         self.graph.add_node(id, **attr)
 
         return self.graph.nodes[id]
+
+    def _parse_id_and_attribute(self):
+        pass
+
+    def _set_single_input(self, id, attr, source):
+        model = self.graph.nodes[id]['model']
+
+        if type(source) == str:
+            if source in self.graph.nodes:
+                sid = source
+                sattr = None
+            else:
+                seg = source.split('.')
+                sid = sum(seg[:-1])
+                sattr = seg[-1]
+                if sid not in self.graph.nodes:
+                    raise KeyError("Graph has no {} nor {}".format(source, id))
+                if sattr not in model.vars:
+                    raise KeyError("Model {} has no variable {}".format(
+                        model.__name__, sattr))
+        elif isinstance(source, Model):
+            sid = source.id
+            sattr = None
+            if sid not in self.graph.nodes:
+                raise KeyError("Graph has no {}".format(source))
+        elif isinstance(source, _Variable):
+            sid = source.id
+            sattr = source.name
+            if not sid in self.graph.nodes:
+                raise KeyError("Graph has no {}".format(source))
+            if sattr not in model.vars:
+                raise KeyError("Model {} has no variable {}".format(
+                    model.__name__, sattr))
+
+        smodel = self.graph.nodes[sid]['model']
+
+        if attr is None and sattr is None:
+            _attr = list(sattr.inter.keys()) + list(sattr.state.keys())
+            _attr = [x for x in model.input.keys() if x in _attr]
+
+            if len(_attr) == 0:
+                raise AttributeError("Fail to infer I/O pair;" + \
+                    " {} and {}".format(model.__name__, smodel.__name__) + \
+                    " have no common attribute.")
+
+            elif len(_attr) > 1:
+                raise AttributeError("Fail to infer I/O pair;" + \
+                    " {} and {}".format(model.__name__, smodel.__name__) + \
+                    " have more than one common attributes" + \
+                    " {}".format(_attr))
+
+            attr = sattr = _attr[0]
+
+        elif attr is None and sattr is not None:
+            if sattr not in model.input.keys():
+                raise AttributeError("{} does not appear in".format(sattr) + \
+                    " the input argument of {}".format(model.__name__))
+            attr = sattr
+
+        elif attr is not None and sattr is None:
+            if attr not in smodel.state.keys() and \
+                attr not in smodel.inter.keys():
+                raise AttributeError("{} does not appear in".format(sattr) + \
+                    " {}".format(model.__name__))
+
+        self.graph.add_edge(id, sid, output=sattr, input=attr)
+
+    def set_inputs(self, id, inputs):
+
+        if type(inputs) is list or type(inputs) is tuple:
+            for val in inputs:
+                self._set_single_input(self, id, None, val)
+        elif type(inputs) is dict:
+            for key, val in inputs.items():
+                self._set_single_input(self, id, key, val)
+        else:
+            self._set_single_input(self, id, None, inputs)
 
     def _get_delay(self, attrs):
         delay = attrs.pop('delay', None)
