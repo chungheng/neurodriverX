@@ -1,9 +1,21 @@
 import copy
 import types
-import networkx as nx
 from collections import OrderedDict
 from .model import Model, modeldict, _Variable
 import numbers
+
+import networkx as nx
+import numpy as np
+
+
+class Arr(object):
+    def __init__(self, arr, idx):
+        self.arr = arr
+        self.idx = idx
+    def __call__(self):
+        return self.arr[self.idx]
+    def __repr__(self):
+        return repr(self.__call__())
 
 def get_all_subclasses(cls):
     all_subclasses = {}
@@ -341,6 +353,47 @@ class LPU(object):
                 self._set_single_input(val, id, oattr=key)
         else:
             self._set_single_input(outputs, id)
+
+    def _serialize_model_data(self):
+        self.models = {}
+
+        for _id, data in self.graph.nodes(data=True):
+            model = data['model']
+            if model not in self.models:
+                dct = {key:[] for key in data.keys() if key != 'model'}
+                self.models[model] = dct
+
+            for key, val in data.items():
+                if key != 'model':
+                    self.models[model][key].append(val)
+
+        for dct in self.models.values():
+            for key, val in dct.items():
+                if key != 'id':
+                    dct[key] = np.asarray(val, dtype=self.dtype)
+            dct['id2idx'] = {x:i for i,x in enumerate(dct['id'])}
+            dct['input'] = {}
+
+        for u, v, data in self.graph.edges(data=True):
+            omodel = self.graph.nodes[u]['model']
+            imodel = self.graph.nodes[v]['model']
+            odct, idct = self.models[omodel], self.models[imodel]
+
+            arr = Arr(odct[data['output']], odct['id2idx'][u])
+
+            iattr = data['input']
+            if iattr not in idct['input']:
+                idct['input'][iattr] = [list() for _ in idct['id']]
+            idx = idct['id2idx'][v]
+            idct['input'][iattr][idx].append(arr)
+
+        for _dct in self.models.values():
+            dct = _dct['input']
+            for key, val in dct.items():
+                num = [len(x) for x in val]
+                offset = np.cumsum(num)
+                offset = [0] + offset[:-1].tolist()
+                dct[key] = (sum(val, []), num, offset)
 
     def write_gexf(self, filename):
         graph = nx.MultiDiGraph()
