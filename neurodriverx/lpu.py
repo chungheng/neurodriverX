@@ -395,6 +395,21 @@ class LPU(object):
                 offset = [0] + offset[:-1].tolist()
                 dct[key] = (sum(val, []), num, offset)
 
+    def _instantiate_model(self):
+        for model, dct in self.models.items():
+            instance = model()
+            for key in instance.vars:
+                instance[key] = dct.pop(key)
+            dct['instance'] = instance
+
+
+    def compile(self, backend='CPU', dtype=np.float64):
+        self.dtype = dtype
+
+        self._serialize_model_data()
+
+        self._instantiate_model()
+
     def write_gexf(self, filename):
         graph = nx.MultiDiGraph()
         for n,d in self.graph.nodes(data=True):
