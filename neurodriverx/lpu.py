@@ -241,89 +241,100 @@ class LPU(object):
 
         self.graph.add_node(id, **attr)
 
+        if inputs:
+            self.set_inputs(id, inputs)
+
+        if outputs:
+            self.set_outputs(id, outputs)
+
         return self.graph.nodes[id]
 
-    def _parse_id_and_attribute(self):
-        pass
-
-    def _set_single_input(self, id, attr, source):
-        model = self.graph.nodes[id]['model']
-
-        if type(source) == str:
-            if source in self.graph.nodes:
-                sid = source
-                sattr = None
+    def _parse_id_and_attribute(self, obj, attr=None):
+        if type(obj) == str:
+            if obj in self.graph.nodes:
+                id = obj
             else:
-                seg = source.split('.')
-                sid = sum(seg[:-1])
-                sattr = seg[-1]
-                if sid not in self.graph.nodes:
-                    raise KeyError("Graph has no {} nor {}".format(source, id))
-                if sattr not in model.vars:
-                    raise KeyError("Model {} has no variable {}".format(
-                        model.__name__, sattr))
-        elif isinstance(source, Model):
-            sid = source.id
-            sattr = None
-            if sid not in self.graph.nodes:
-                raise KeyError("Graph has no {}".format(source))
-        elif isinstance(source, _Variable):
-            sid = source.id
-            sattr = source.name
-            if not sid in self.graph.nodes:
-                raise KeyError("Graph has no {}".format(source))
-            if sattr not in model.vars:
-                raise KeyError("Model {} has no variable {}".format(
-                    model.__name__, sattr))
+                seg = obj.split('.')
+                id = '.'.join(seg[:-1])
+                attr = seg[-1]
+        elif isinstance(obj, modeldict):
+            id = obj.id
+        elif isinstance(obj, _Variable):
+            id = obj.id
+            attr = obj.name
+        else:
+            raise TypeError("Unsupported type of {}".format(obj))
 
-        smodel = self.graph.nodes[sid]['model']
+        if not id in self.graph.nodes:
+            raise KeyError("Graph has no {}".format(id))
 
-        if attr is None and sattr is None:
-            _attr = list(sattr.inter.keys()) + list(sattr.state.keys())
-            _attr = [x for x in model.input.keys() if x in _attr]
+        return id, attr
 
-            if len(_attr) == 0:
+    def _validate_model_attribute(self, model, candidates, attr):
+        if attr not in candidates:
+            msg = "'{}' does not appear in '{}'".format(attr, model.__name__)
+            raise AttributeError(msg)
+
+    def _set_single_input(self, iid, oid, iattr=None, oattr=None):
+
+        iid, iattr = self._parse_id_and_attribute(iid, iattr)
+        oid, oattr = self._parse_id_and_attribute(oid, oattr)
+        imodel = self.graph.nodes[iid]['model']
+        omodel = self.graph.nodes[oid]['model']
+
+        icandidates = list(imodel.input.keys())
+        ocandidates = list(omodel.inter.keys()) + list(omodel.state.keys())
+
+        if iattr is None and oattr is None:
+            attr = [x for x in icandidates if x in ocandidates]
+
+            if len(attr) == 0:
                 raise AttributeError("Fail to infer I/O pair;" + \
-                    " {} and {}".format(model.__name__, smodel.__name__) + \
+                    " {} and {}".format(imodel.__name__, omodel.__name__) + \
                     " have no common attribute.")
 
-            elif len(_attr) > 1:
+            elif len(attr) > 1:
                 raise AttributeError("Fail to infer I/O pair;" + \
-                    " {} and {}".format(model.__name__, smodel.__name__) + \
+                    " {} and {}".format(imodel.__name__, omodel.__name__) + \
                     " have more than one common attributes" + \
-                    " {}".format(_attr))
+                    " {}".format(attr))
 
-            attr = sattr = _attr[0]
+            iattr = oattr = attr[0]
 
-        elif attr is None and sattr is not None:
-            if sattr not in model.input.keys():
-                raise AttributeError("{} does not appear in".format(sattr) + \
-                    " the input argument of {}".format(model.__name__))
-            attr = sattr
+        elif iattr is None and oattr is not None:
+            self._validate_model_attribute(imodel, icandidates, oattr)
+            iattr = oattr
 
-        elif attr is not None and sattr is None:
-            if attr not in smodel.state.keys() and \
-                attr not in smodel.inter.keys():
-                raise AttributeError("{} does not appear in".format(sattr) + \
-                    " {}".format(model.__name__))
+        elif iattr is not None and oattr is None:
+            self._validate_model_attribute(omodel, ocandidates, iattr)
+            oattr = iattr
 
-        self.graph.add_edge(id, sid, output=sattr, input=attr)
+        self._validate_model_attribute(imodel, icandidates, iattr)
+        self._validate_model_attribute(omodel, ocandidates, oattr)
+
+        self.graph.add_edge(oid, iid, output=oattr, input=iattr)
 
     def set_inputs(self, id, inputs):
 
         if type(inputs) is list or type(inputs) is tuple:
             for val in inputs:
-                self._set_single_input(self, id, None, val)
+                self._set_single_input(id, val)
         elif type(inputs) is dict:
             for key, val in inputs.items():
-                self._set_single_input(self, id, key, val)
+                self._set_single_input(id, val, iattr=key)
         else:
-            self._set_single_input(self, id, None, inputs)
+            self._set_single_input(id, inputs)
 
-    def _get_delay(self, attrs):
-        delay = attrs.pop('delay', None)
-        delay = {'delay': delay} if delay else dict({})
-        return delay
+    def set_outputs(self, id, outputs):
+
+        if type(outputs) is list or type(outputs) is tuple:
+            for val in outputs:
+                self._set_single_input(val, id)
+        elif type(outputs) is dict:
+            for key, val in outputs.items():
+                self._set_single_input(val, id, oattr=key)
+        else:
+            self._set_single_input(outputs, id)
 
     def write_gexf(self, filename):
         graph = nx.MultiDiGraph()
