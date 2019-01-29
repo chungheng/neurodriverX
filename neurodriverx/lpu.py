@@ -410,6 +410,24 @@ class LPU(object):
 
         self._instantiate_model()
 
+    def _aggregate_input(self):
+        for dct in self.models.values():
+            instance = dct['instance']
+            for key, val in dct['input'].items():
+                arr, num, offset = val
+                for i, (n, o) in enumerate(zip(num, offset)):
+                    total = 0.
+                    for j in range(o, o+n):
+                        total += arr[j]()
+                    instance[key][i] = total
+
+    def update(self, dt):
+        self._aggregate_input()
+
+        for dct in self.models.values():
+            instance = dct['instance']
+            instance.update(dt, **instance.input)
+
     def write_gexf(self, filename):
         graph = nx.MultiDiGraph()
         for n,d in self.graph.nodes(data=True):
