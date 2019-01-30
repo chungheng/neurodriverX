@@ -270,9 +270,6 @@ class LPU(object):
                     self.models[model][key].append(val)
 
         for dct in self.models.values():
-            for key, val in dct.items():
-                if key != 'id':
-                    dct[key] = np.asarray(val, dtype=self.dtype)
             dct['id2idx'] = {x:i for i,x in enumerate(dct['id'])}
             dct['input'] = {}
 
@@ -301,7 +298,7 @@ class LPU(object):
         for model, dct in self.models.items():
             instance = model()
             for key in instance.vars:
-                instance[key] = dct.pop(key)
+                instance[key] = np.asarray(dct[key], dtype=self.dtype)
             dct['instance'] = instance
 
 
