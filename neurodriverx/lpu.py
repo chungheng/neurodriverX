@@ -299,15 +299,19 @@ class LPU(object):
             instance = model()
             for key in instance.vars:
                 instance[key] = np.asarray(dct[key], dtype=self.dtype)
+            instance.compile(backend=self.backend)
             dct['instance'] = instance
 
 
-    def compile(self, backend='CPU', dtype=np.float64):
+    def compile(self, backend='numpy', dtype=np.float64):
+        self.backend = backend
         self.dtype = dtype
 
         self._serialize_model_data()
 
         self._instantiate_model()
+
+
 
     def _aggregate_input(self):
         for dct in self.models.values():
