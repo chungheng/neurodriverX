@@ -315,6 +315,8 @@ class LPU(object):
             for key, val in dct['input'].items():
                 arr, num, offset = val
                 for i, (n, o) in enumerate(zip(num, offset)):
+                    if n == 0:
+                        continue
                     total = 0.
                     for j in range(o, o+n):
                         total += arr[j]()
