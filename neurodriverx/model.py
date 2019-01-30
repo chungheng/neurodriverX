@@ -129,9 +129,8 @@ class VariableAnalyzer(CodeGenerator):
             setattr(self.variables[name], key, val)
 
 class FuncGenerator(CodeGenerator):
-    def __init__(self, func, fname, variables, **kwargs):
+    def __init__(self, func, variables, **kwargs):
         self.func = func
-        self.fname = fname
         self.code = get_function_code(func)
         self.variables = variables
 
@@ -139,7 +138,8 @@ class FuncGenerator(CodeGenerator):
 
     def generate(self):
         signature = inspect.signature(self.func)
-        self.ostream.write("def {}{}:\n".format(self.fname, str(signature)))
+        fname = self.func.__name__
+        self.ostream.write("def {}{}:\n".format(fname, str(signature)))
 
         super(FuncGenerator, self).generate()
 
@@ -180,7 +180,7 @@ class ModelMetaClass(type):
             dct[attr] = {k:v.value for k,v in vars.items() if v.type == attr}
 
         for key in func_list:
-            func, src = cls._generate_executabale_func(dct[key], key, vars)
+            func, src = cls._generate_executabale_func(dct[key], vars)
             dct['_{}'.format(key)] = func
             dct['_{}_src'.format(key)] = src
 
@@ -190,15 +190,15 @@ class ModelMetaClass(type):
         var_analyzer = VariableAnalyzer(func, defaults, variables=variables)
         return var_analyzer.variables
 
-    def _generate_executabale_func(func, fname, variables):
+    def _generate_executabale_func(func, variables):
 
-        codegen = FuncGenerator(func, fname=fname, variables=variables)
+        codegen = FuncGenerator(func, variables=variables)
         src = codegen.generate()
         co = compile(src, '<string>', 'exec')
         locs = dict()
         globals = dict.copy(get_function_globals(func))
         eval(co, globals, locs)
-        ode = locs[fname]
+        ode = locs[func.__name__]
         del locs
 
         return ode, src
