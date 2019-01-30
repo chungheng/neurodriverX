@@ -267,6 +267,8 @@ class modeldict(collections.MutableMapping):
         return repr(self.store)
 
     def __getattr__(self, key):
+        if key == 'id':
+            return self['id']
         model = self.store['model']
         if key in model.vars:
             var = copy.deepcopy(getattr(model, key))
