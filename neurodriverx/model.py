@@ -43,7 +43,7 @@ class VariableAnalyzer(CodeGenerator):
         self.globals = get_function_globals(self.func)
 
         inputs = self._extract_signature(func)
-        self.variables = {}
+        self.variables = kwargs.pop('variables', dict())
         for key, val in inputs:
             self.variables[key] = _Variable(type='input', value=val, name=key)
 
@@ -127,9 +127,10 @@ class VariableAnalyzer(CodeGenerator):
         for key, val in kwargs.items():
             setattr(self.variables[name], key, val)
 
-class OdeGenerator(CodeGenerator):
-    def __init__(self, func, variables, **kwargs):
+class FuncGenerator(CodeGenerator):
+    def __init__(self, func, fname, variables, **kwargs):
         self.func = func
+        self.fname = fname
         self.code = get_function_code(func)
         self.variables = variables
 
@@ -137,9 +138,9 @@ class OdeGenerator(CodeGenerator):
 
     def generate(self):
         signature = inspect.signature(self.func)
-        self.ostream.write("def ode{}:\n".format(str(signature)))
+        self.ostream.write("def {}{}:\n".format(self.fname, str(signature)))
 
-        super(OdeGenerator, self).generate()
+        super(FuncGenerator, self).generate()
 
         return self.ostream.getvalue()
 
@@ -162,13 +163,14 @@ class ModelMetaClass(type):
 
         defaults = dct['defaults']
         # extract variables from member functions
-        vars = {}
-        for key in ['ode']:
-            func = dct[key]
-            vars.update(cls._analyze_variable(func, defaults))
+        func_list = [x for x in ['ode', 'post'] if x in dct]
 
-        for key in defaults:
-             assert key in vars, "Unused variable {} in {}".format(key, clsname)
+        vars = {}
+        for key in func_list:
+            vars.update(cls._analyze_variable(dct[key], defaults, vars))
+
+        # for key in defaults:
+        #      assert key in vars, "Unused variable {} in {}".format(key, clsname)
 
         dct.update(vars)
         dct['vars'] = [v.name for v in vars.values() if v.type != 'local']
@@ -176,25 +178,26 @@ class ModelMetaClass(type):
         for attr in ['inter', 'param', 'state', 'local', 'input']:
             dct[attr] = {k:v.value for k,v in vars.items() if v.type == attr}
 
-        _ode, _ode_src = cls._generate_executabale_ode(func, vars)
-        dct['_ode'] = _ode
-        dct['_ode_src'] = _ode_src
+        for key in func_list:
+            func, src = cls._generate_executabale_func(dct[key], key, vars)
+            dct['_{}'.format(key)] = func
+            dct['_{}_src'.format(key)] = src
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
-    def _analyze_variable(func, defaults):
-        var_analyzer = VariableAnalyzer(func, defaults)
+    def _analyze_variable(func, defaults, variables):
+        var_analyzer = VariableAnalyzer(func, defaults, variables=variables)
         return var_analyzer.variables
 
-    def _generate_executabale_ode(func, variables):
+    def _generate_executabale_func(func, fname, variables):
 
-        codegen = OdeGenerator(func, variables=variables)
+        codegen = FuncGenerator(func, fname=fname, variables=variables)
         src = codegen.generate()
         co = compile(src, '<string>', 'exec')
         locs = dict()
         globals = dict.copy(get_function_globals(func))
         eval(co, globals, locs)
-        ode = locs['ode']
+        ode = locs[fname]
         del locs
 
         return ode, src
