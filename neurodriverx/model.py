@@ -219,24 +219,6 @@ class ModelMetaClass(type):
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
-
-    def _analyze_variable(func, defaults, variables):
-        var_analyzer = VariableAnalyzer(func, defaults, variables=variables)
-        return var_analyzer.variables
-
-    def _compile_func(func, variables, backend):
-
-        codegen = FuncGenerator(func, variables=variables, backend=backend)
-        src = codegen.generate()
-        co = compile(src, '<string>', 'exec')
-        locs = dict()
-        globals = dict.copy(get_function_globals(func))
-        eval(co, globals, locs)
-        ode = locs[func.__name__]
-        del locs
-
-        return ode, src
-
     def __getitem__(cls, key):
         var = getattr(cls, key, None)
         if var is None:
@@ -275,8 +257,38 @@ class Model(with_metaclass(ModelMetaClass, object)):
         dct = getattr(self, var.type)
         dct[key] = value
 
+    def compile(self, backend=None):
+        self.backend = backend or self.backend
+
+        func_list = [x for x in ['ode', 'post'] if hasattr(self, x)]
+
+        for f in func_list:
+            func, src = _compile_func(getattr(self, f), self.vars, self.backend)
+            fname = '_{}_{}'.format(self.backend, f)
+            func = MethodType(func, self)
+            setattr(self, fname, func)
+            setattr(self, fname+'_src', src)
+            setattr(self, '_'+f, func)
+
+        for k in self.grad:
+            if self.backend == 'scalar':
+                self.grad[k] = 0.
+            elif self.backend == 'numpy':
+                self.grad[k] = np.zeros_like(self.state[k])
+
     def ode(self):
         pass
+
+    def post(self):
+        pass
+
+    def update(self, dt, **kwargs):
+        self._ode(**kwargs)
+
+        for key, val in self.grad.items():
+            self.state[key] += dt*val
+
+        self._post()
 
 class modeldict(collections.MutableMapping):
     """A dictionary that applies an arbitrary key-altering
