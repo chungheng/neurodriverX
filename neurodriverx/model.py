@@ -107,7 +107,8 @@ class VariableAnalyzer(CodeGenerator):
             if key[:2] == 'd_':
                 key = key.split('d_')[-1]
                 self._set_variable(key, type='state')
-            elif key not in self.variables:
+            elif key not in self.variables or \
+                self.variables[key].type != 'state':
                 self._set_variable(key, type='inter')
             self.var[-1] = key
         else:
