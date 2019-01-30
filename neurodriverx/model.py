@@ -163,10 +163,21 @@ class FuncGenerator(CodeGenerator):
                 return
         self.var[-1] += ".%s" % key
 
+    def handle_store_attr(self, ins):
+        self.handle_load_attr(ins)
+        if self.backend is 'numpy':
+            template = "{0}[:] = {1}"
+        else:
+            template = "{0} = {1}"
+        self.var[-2] = template.format(self.var[-1], self.var[-2])
+        del self.var[-1]
+
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
 
         defaults = dct['defaults']
+        if 'backend' not in dct:
+            dct['backend'] = 'scalar'
         # extract variables from member functions
         func_list = [x for x in ['ode', 'post'] if x in dct]
 
@@ -174,29 +185,31 @@ class ModelMetaClass(type):
         for key in func_list:
             vars.update(cls._analyze_variable(dct[key], defaults, vars))
 
-        # for key in defaults:
-        #      assert key in vars, "Unused variable {} in {}".format(key, clsname)
+        # dct.update(vars)
+        # dct['vars'] = {k:v for k, v in vars.items() if v.type != 'local'}
+        dct['vars'] = {k: v for k, v in vars.items() if v.type != 'local'}
+        dct.update(dct['vars'])
 
-        dct.update(vars)
-        dct['vars'] = [v.name for v in vars.values() if v.type != 'local']
-
-        for attr in ['inter', 'param', 'state', 'local', 'input']:
-            dct[attr] = {k:v.value for k,v in vars.items() if v.type == attr}
+        for attr in ['inter', 'param', 'state', 'input']:
+            dct[attr] = {k:v.value for k, v in vars.items() if v.type == attr}
 
         for key in func_list:
-            func, src = cls._generate_executabale_func(dct[key], vars)
-            dct['_{}'.format(key)] = func
-            dct['_{}_src'.format(key)] = src
+            func, src = cls._compile_func(dct[key], vars, dct['backend'])
+            fname = '_{}_{}'.format(dct['backend'], key)
+            dct[fname] = func
+            dct[fname+'_src'] = src
+            dct['_'+key] = dct[fname]
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
+
 
     def _analyze_variable(func, defaults, variables):
         var_analyzer = VariableAnalyzer(func, defaults, variables=variables)
         return var_analyzer.variables
 
-    def _generate_executabale_func(func, variables):
+    def _compile_func(func, variables, backend):
 
-        codegen = FuncGenerator(func, variables=variables)
+        codegen = FuncGenerator(func, variables=variables, backend=backend)
         src = codegen.generate()
         co = compile(src, '<string>', 'exec')
         locs = dict()
@@ -216,9 +229,11 @@ class ModelMetaClass(type):
 
 class Model(with_metaclass(ModelMetaClass, object)):
     defaults = dict()
+    backend = 'scalar'
 
-    def __init__(self,  **kwargs):
+    def __init__(self, **kwargs):
         self.id = kwargs.pop('id', '')
+        self.backend = kwargs.pop('backend', self.__class__.backend)
 
         self.param = self.__class__.param.copy()
         self.inter = self.__class__.inter.copy()
