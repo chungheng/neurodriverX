@@ -206,7 +206,6 @@ class ModelMetaClass(type):
         dct = getattr(cls, var.type)
         return dct[key]
 
-
 class Model(with_metaclass(ModelMetaClass, object)):
     defaults = dict()
 
@@ -216,7 +215,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.param = self.__class__.param.copy()
         self.inter = self.__class__.inter.copy()
         self.state = self.__class__.state.copy()
-        self.grad = self.__class__.state.copy()
+        self.input = self.__class__.input.copy()
+        self.grad = {key:0. for key in self.__class__.state.keys()}
 
         for key, val in kwargs.items():
             self[key] = val
