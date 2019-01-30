@@ -109,7 +109,6 @@ class LPU(object):
         else:
             new_obj = _class
 
-        attr = {key: kwargs.pop(key, new_obj[key]) for key in new_obj.vars}
         attr = {'model': _class, 'id': kwargs.pop('id', '')}
         for key in new_obj.vars:
             val = kwargs.pop(key, new_obj[key])
