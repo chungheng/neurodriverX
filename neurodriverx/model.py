@@ -172,6 +172,23 @@ class FuncGenerator(CodeGenerator):
         self.var[-2] = template.format(self.var[-1], self.var[-2])
         del self.var[-1]
 
+def _analyze_variable(func, defaults, variables):
+    var_analyzer = VariableAnalyzer(func, defaults, variables=variables)
+    return var_analyzer.variables
+
+def _compile_func(func, variables, backend):
+
+    codegen = FuncGenerator(func, variables=variables, backend=backend)
+    src = codegen.generate()
+    co = compile(src, '<string>', 'exec')
+    locs = dict()
+    globals = dict.copy(get_function_globals(func))
+    eval(co, globals, locs)
+    ode = locs[func.__name__]
+    del locs
+
+    return ode, src
+
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
 
@@ -183,7 +200,7 @@ class ModelMetaClass(type):
 
         vars = {}
         for key in func_list:
-            vars.update(cls._analyze_variable(dct[key], defaults, vars))
+            vars.update(_analyze_variable(dct[key], defaults, vars))
 
         # dct.update(vars)
         # dct['vars'] = {k:v for k, v in vars.items() if v.type != 'local'}
@@ -194,7 +211,7 @@ class ModelMetaClass(type):
             dct[attr] = {k:v.value for k, v in vars.items() if v.type == attr}
 
         for key in func_list:
-            func, src = cls._compile_func(dct[key], vars, dct['backend'])
+            func, src = _compile_func(dct[key], vars, dct['backend'])
             fname = '_{}_{}'.format(dct['backend'], key)
             dct[fname] = func
             dct[fname+'_src'] = src
