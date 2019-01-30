@@ -8,7 +8,10 @@ from types import MethodType
 from six import with_metaclass, get_function_globals, get_function_code, \
     StringIO
 
+import numpy as np
+
 from pycodegen.codegen import CodeGenerator
+from pycodegen.utils import get_func_signature
 
 class _Variable(object):
     default = {
@@ -129,17 +132,18 @@ class VariableAnalyzer(CodeGenerator):
             setattr(self.variables[name], key, val)
 
 class FuncGenerator(CodeGenerator):
-    def __init__(self, func, variables, **kwargs):
+    def __init__(self, func, variables = None, backend=None, **kwargs):
         self.func = func
         self.code = get_function_code(func)
-        self.variables = variables
+        self.backend = backend or None
+        self.variables = variables or dict()
 
         CodeGenerator.__init__(self, self.func,  offset=4, ostream=StringIO())
 
     def generate(self):
-        signature = inspect.signature(self.func)
+        signature = ','.join(get_func_signature(self.func))
         fname = self.func.__name__
-        self.ostream.write("def {}{}:\n".format(fname, str(signature)))
+        self.ostream.write("def {}({}):\n".format(fname, signature))
 
         super(FuncGenerator, self).generate()
 
