@@ -204,8 +204,8 @@ class ModelMetaClass(type):
 
         # dct.update(vars)
         # dct['vars'] = {k:v for k, v in vars.items() if v.type != 'local'}
-        dct['vars'] = {k: v for k, v in vars.items() if v.type != 'local'}
-        dct.update(dct['vars'])
+        dct['vars'] = vars
+        dct.update({k: v for k, v in vars.items() if v.type != 'local'})
 
         for attr in ['inter', 'param', 'state', 'input']:
             dct[attr] = {k:v.value for k, v in vars.items() if v.type == attr}
@@ -322,7 +322,7 @@ class modeldict(collections.MutableMapping):
         if key == 'id':
             return self['id']
         model = self.store['model']
-        if key in model.vars:
+        if key in model.vars and model.vars[key].type != 'local':
             var = copy.deepcopy(getattr(model, key))
             var.id = self.store['id']
             return var
