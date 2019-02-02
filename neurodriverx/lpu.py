@@ -273,6 +273,12 @@ class LPU(object):
             dct['id2idx'] = {x:i for i,x in enumerate(dct['id'])}
             dct['input'] = {}
 
+        # reduce list to scalar if all entires are equal
+        for dct in self.models.values():
+            for key, lst in dct.items():
+                if not lst or lst.count(lst[0]) == len(lst)
+                    dct[key] = lst[0]
+
         for u, v, data in self.graph.edges(data=True):
             omodel = self.graph.nodes[u]['model']
             imodel = self.graph.nodes[v]['model']
