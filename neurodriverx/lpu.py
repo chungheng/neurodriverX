@@ -111,6 +111,8 @@ class LPU(object):
 
         attr = {'model': _class, 'id': kwargs.pop('id', '')}
         for key in new_obj.vars:
+            if new_obj.var[key].type == 'local':
+                continue
             val = kwargs.pop(key, new_obj[key])
             if not isinstance(val, numbers.Number):
                 raise ValueError("Variable {} should be a number".format(key))
@@ -276,7 +278,7 @@ class LPU(object):
         # reduce list to scalar if all entires are equal
         for dct in self.models.values():
             for key, lst in dct.items():
-                if not lst or lst.count(lst[0]) == len(lst)
+                if not lst or lst.count(lst[0]) == len(lst):
                     dct[key] = lst[0]
 
         for u, v, data in self.graph.edges(data=True):
