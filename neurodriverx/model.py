@@ -173,7 +173,18 @@ class FuncGenerator(CodeGenerator):
         del self.var[-1]
 
 
-class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
+class CudaMetaClass(type):
+    def __new__(cls, clsname, bases, dct):
+        py2cu = dict()
+        for key, val in dct.items():
+            if callable(val) and hasattr(val, '_source_funcs'):
+                for func in val._source_funcs:
+                    py2cu[func] = val
+        dct['pyfunc_to_cufunc'] = py2cu
+        return super(CudaMetaClass, cls).__new__(cls, clsname, bases, dct)
+
+
+class CudaGenerator(with_metaclass(CudaMetaClass, CodeGenerator)):
     def __init__(self, model, **kwargs):
         pass
 
