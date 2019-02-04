@@ -172,6 +172,117 @@ class FuncGenerator(CodeGenerator):
         self.var[-2] = template.format(self.var[-1], self.var[-2])
         del self.var[-1]
 
+
+class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
+    def __init__(self, model, **kwargs):
+        pass
+
+    def _post_output(self):
+        self.newline = ';\n'
+        CodeGenerator._post_output(self)
+
+    def handle_load_attr(self, ins):
+        key = ins.argval
+        if self.var[-1] == 'self':
+            if key in self.model.Default_States:
+                self.var[-1] = "states.{0}".format(key)
+            elif key[:2] == 'd_' and key[2:] in self.model.Default_States:
+                self.var[-1] = "gstates.{0}".format(key[2:])
+            elif key in self.model.Default_Params:
+                self.var[-1] = key.upper()
+            elif key in self.model.Default_Inters:
+                self.var[-1] = "inters.{0}".format(key)
+        else:
+            self.var[-1] = "{0}.{1}".format(self.var[-1], key)
+
+    def process_jump(self, ins):
+        if len(self.jump_targets) and self.jump_targets[0] == ins.offset:
+            if len(self.var):
+                self.output_statement()
+            self.jump_targets.pop()
+            self.space -= self.indent
+            self.leave_indent = False
+
+            self.var.append('}')
+            self.newline = '\n'
+            self.output_statement()
+
+    def handle_store_fast(self, ins):
+        if ins.argval == self.var[-1]:
+            del self.var[-1]
+            return
+        if ins.argval not in self.variables and ins.argval not in self.signature:
+            self.variables.append(ins.argval)
+        self.var[-1] = "{0} = {1}".format(ins.argval, self.var[-1])
+
+    def handle_binary_power(self, ins):
+        self.var[-2] = "powf({0}, {1})".format(self.var[-2], self.var[-1])
+        del self.var[-1]
+
+    def handle_binary_and(self, ins):
+        self.var[-2] = "({0} && {1})".format(self.var[-2], self.var[-1])
+        del self.var[-1]
+
+    def handle_binary_or(self, ins):
+        self.var[-2] = "({0} || {1})".format(self.var[-2], self.var[-1])
+        del self.var[-1]
+
+    def handle_call_function(self, ins):
+        narg = int(ins.arg)
+
+        # hacky way to handle keyword arguments
+        if self.kwargs and self.var[-(narg+1)] == (self.kwargs + ".pop"):
+            self.var[-(narg+1)] = self.var[-narg]
+            self.signature.append(str(self.var[-narg]))
+        else:
+            args = [] if narg == 0 else list(map(str, self.var[-narg:]))
+            func_name = self.var[-(narg+1)]
+            pyfunc = eval(func_name, self.func_globals)
+            cufunc = self.pyfunc_to_cufunc.get(pyfunc)
+            if cufunc is not None:
+                self.var[-(narg+1)] = cufunc(self, args)
+            else:
+                temp = ', '.join(args)
+                self.var[-(narg+1)] = "{0}({1})".format(func_name, temp)
+
+        if narg:
+            del self.var[-narg:]
+
+    def handle_pop_jump_if_true(self, ins):
+        self.jump_targets.append(ins.arg)
+        self.enter_indent = True
+        self.var[-1] = "if (!{0}) {{".format(self.var[-1])
+        self.newline = '\n'
+
+    def handle_pop_jump_if_false(self, ins):
+        self.jump_targets.append(ins.arg)
+        self.enter_indent = True
+        self.var[-1] = "if ({0}) {{".format(self.var[-1])
+        self.newline = '\n'
+
+    def handle_jump_forward(self, ins):
+        self.leave_indent = True
+        self.output_statement()
+
+        target, old_target = ins.argval, self.jump_targets.pop()
+
+        if target != old_target:
+            self.newline = '\n'
+            self.var.append("} else {")
+            self.enter_indent = True
+            self.jump_targets.append(target)
+        else:
+            self.var.append('}')
+            self.newline = '\n'
+            self.output_statement()
+
+    def handle_return_value(self, ins):
+        val = self.var[-1]
+        if val is None:
+            val = '0'
+        self.var[-1] = "return {0}".format(val)
+
+
 def _analyze_variable(func, defaults, variables):
     var_analyzer = VariableAnalyzer(func, defaults, variables=variables)
     return var_analyzer.variables
