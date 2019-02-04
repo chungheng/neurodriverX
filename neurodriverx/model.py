@@ -315,6 +315,19 @@ class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
 
         defaults = dct['defaults']
+        bounds = dict()
+
+        for key, val in defaults.items():
+            if hasattr(val, '__len__'):
+                assert len(val) == 3, "Variable {} ".format(key) + \
+                    "should be a scalar of a iterable of 3 elements " + \
+                    "(initial value, upper bound, lower bound), " + \
+                    "but {} is given.".format(val)
+                defaults[key] = val[0]
+                bounds[key] = val[1:]
+
+        dct['bounds'] = bounds
+
         if 'backend' not in dct:
             dct['backend'] = 'scalar'
         # extract variables from member functions
