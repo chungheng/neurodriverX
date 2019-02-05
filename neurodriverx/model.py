@@ -397,8 +397,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         if var is None:
             raise AttributeError(key)
         dct = getattr(self, var.type)
-        if hasattr(value, "__len__"):
-            value = np.asarray(value)
         dct[key] = value
 
     def set_attrs(self, skip=False, **kwargs):

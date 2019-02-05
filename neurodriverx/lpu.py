@@ -300,6 +300,16 @@ class LPU(object):
                 offset = [0] + offset[:-1].tolist()
                 dct[key] = (sum(val, []), num, offset)
 
+    def _allocate_data_memory(self):
+        if self.backend == 'numpy':
+            for model, dct in self.models.items():
+                for key in model.vars:
+                    val = dct[key]
+                    if hasattr(val, '__len__'):
+                        dct[key] = np.asarray(val)
+        elif self.backend == 'pycuda':
+            pass
+
     def _instantiate_model(self):
         for model, dct in self.models.items():
             instance = model()
