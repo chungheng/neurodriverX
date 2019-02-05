@@ -269,15 +269,17 @@ class LPU(object):
                 if key != 'model':
                     self.models[model][key].append(val)
 
+        # reduce list to scalar if all entires are equal
+        for model, dct in self.models.items():
+            for key, lst in dct.items():
+                if key in model.vars and \
+                    model.vars[key].type == 'param' and \
+                    lst.count(lst[0]) == len(lst):
+                    dct[key] = lst[0]
+
         for dct in self.models.values():
             dct['id2idx'] = {x:i for i,x in enumerate(dct['id'])}
-            dct['input'] = {}
-
-        # reduce list to scalar if all entires are equal
-        for dct in self.models.values():
-            for key, lst in dct.items():
-                if not lst or lst.count(lst[0]) == len(lst):
-                    dct[key] = lst[0]
+            dct['input'] = dict()
 
         for u, v, data in self.graph.edges(data=True):
             omodel = self.graph.nodes[u]['model']
