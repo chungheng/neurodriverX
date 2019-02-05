@@ -80,9 +80,7 @@ class LPU(object):
         else:
             new_obj = _class()
 
-        for key, val in kwargs.items():
-            assert key in new_obj.vars
-            new_obj[key] = val
+        new_obj.set_attrs(**kwargs)
 
         return new_obj
 
@@ -305,8 +303,7 @@ class LPU(object):
     def _instantiate_model(self):
         for model, dct in self.models.items():
             instance = model()
-            for key in instance.vars:
-                instance[key] = np.asarray(dct[key], dtype=self.dtype)
+            instance.set_attrs(**self.models[model], skip=True)
             instance.compile(backend=self.backend)
             dct['instance'] = instance
 
@@ -318,8 +315,6 @@ class LPU(object):
         self._serialize_model_data()
 
         self._instantiate_model()
-
-
 
     def _aggregate_input(self):
         for dct in self.models.values():
