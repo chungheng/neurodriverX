@@ -254,7 +254,7 @@ class LPU(object):
         else:
             self._set_single_input(outputs, id)
 
-    def _serialize_model_data(self):
+    def _serialize_model_attributes(self):
         self.models = {}
 
         for _id, data in self.graph.nodes(data=True):
@@ -275,6 +275,7 @@ class LPU(object):
                     lst.count(lst[0]) == len(lst):
                     dct[key] = lst[0]
 
+    def _serialize_model_input(self):
         for dct in self.models.values():
             dct['id2idx'] = {x:i for i,x in enumerate(dct['id'])}
             dct['input'] = dict()
@@ -317,12 +318,15 @@ class LPU(object):
             instance.compile(backend=self.backend)
             dct['instance'] = instance
 
-
     def compile(self, backend='numpy', dtype=np.float64):
         self.backend = backend
         self.dtype = dtype
 
-        self._serialize_model_data()
+        self._serialize_model_attributes()
+
+        self._serialize_model_inputs()
+
+        self._allocate_data_memory()
 
         self._instantiate_model()
 
