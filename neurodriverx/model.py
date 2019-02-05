@@ -373,10 +373,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.inter = self.__class__.inter.copy()
         self.state = self.__class__.state.copy()
         self.input = self.__class__.input.copy()
+        self.bound = self.__class__.bound.copy()
         self.grad = {key:0. for key in self.__class__.state.keys()}
 
-        for key, val in kwargs.items():
-            self[key] = val
+        bound = kwargs.pop('bound', dict())
+        self.set_bounds(**bound)
+        self.set_attrs(**kwargs)
 
     def __getitem__(self, key):
         var = getattr(self, key, None)
@@ -387,10 +389,28 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
     def __setitem__(self, key, value):
         var = getattr(self, key, None)
-        if var is None:
+        if var is None or var.type == 'local':
             raise AttributeError(key)
         dct = getattr(self, var.type)
+        if hasattr(value, "__len__"):
+            value = np.asarray(value)
         dct[key] = value
+
+    def set_attrs(self, skip=False, **kwargs):
+        for k, v in kwargs.items():
+            if skip and (k not in self.vars or self.vars[k].type == 'local'):
+                continue
+            self[k] = v
+
+    def set_bounds(self, **kwargs):
+        for key, val in kwargs.items():
+            if val not in self.state:
+                raise KeyError("Only state variable has bounds: {}".format(key))
+            if not hasattr(val, __len__) or len(val) != 2:
+                raise ValueError("Bounds of {} should follow ".format(key) + \
+                    "the format (lower bound, upper bound), " + \
+                    "but {} is provided.".format(key))
+            self.bound[key] = val
 
     def compile(self, backend=None):
         self.backend = backend or self.backend
