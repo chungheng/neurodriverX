@@ -47,6 +47,8 @@ class VariableAnalyzer(CodeGenerator):
 
         inputs = self._extract_signature(func)
         self.variables = kwargs.pop('variables', dict())
+        self.locals = kwargs.pop('locals', dict())
+
         for key, val in inputs:
             self.variables[key] = _Variable(type='input', value=val, name=key)
 
@@ -75,8 +77,9 @@ class VariableAnalyzer(CodeGenerator):
         """
         key = ins.argval
 
-        assert key == 'self' or key in self.variables or key in self.globals, \
-            "Unrecognized variable {}".format(key)
+        if key != 'self' and key not in self.variables and \
+            key not in self.globals and key not in self.locals:
+            "Variable '{}' is not defined".format(key)
 
         self.var.append( ins.argval )
 
@@ -85,7 +88,7 @@ class VariableAnalyzer(CodeGenerator):
         """
         key = ins.argval
         if key not in self.variables:
-            self._set_variable(key, type='local')
+            self.locals[key] = _Variable(name=key, type='local')
         self.var[-1] = "{} = {}".format(key, self.var[-1])
 
     def handle_load_attr(self, ins):
@@ -121,9 +124,8 @@ class VariableAnalyzer(CodeGenerator):
 
     def _set_variable(self, name, **kwargs):
         t = kwargs['type']
-        if t != 'local':
-            assert name in self.defaults, \
-                "Missing default value for Variable {}".format(name)
+        assert name in self.defaults, \
+            "Missing default value for Variable {}".format(name)
         if name not in self.variables:
             val = self.defaults.get(name, None)
             self.variables[name] = _Variable(type=t, value=val, name=name)
@@ -296,7 +298,7 @@ class CudaGenerator(with_metaclass(CudaMetaClass, CodeGenerator)):
 
 def _analyze_variable(func, defaults, variables):
     var_analyzer = VariableAnalyzer(func, defaults, variables=variables)
-    return var_analyzer.variables
+    return var_analyzer.variables, var_analyzer.locals
 
 def _compile_func(func, variables, backend):
 
@@ -317,6 +319,7 @@ class ModelMetaClass(type):
         defaults = dct['defaults']
         bound = dict()
 
+        # extract bound from defaults
         for key, val in defaults.items():
             if hasattr(val, '__len__'):
                 assert len(val) == 3, "Variable {} ".format(key) + \
@@ -334,13 +337,15 @@ class ModelMetaClass(type):
         func_list = [x for x in ['ode', 'post'] if x in dct]
 
         vars = {}
+        locals = {}
         for key in func_list:
-            vars.update(_analyze_variable(dct[key], defaults, vars))
+            new_vars, new_locals = _analyze_variable(dct[key], defaults, vars)
+            vars.update(new_vars)
+            locals[key] = new_locals
 
-        # dct.update(vars)
-        # dct['vars'] = {k:v for k, v in vars.items() if v.type != 'local'}
+        dct['locals'] = locals
         dct['vars'] = vars
-        dct.update({k: v for k, v in vars.items() if v.type != 'local'})
+        dct.update(vars)
 
         for attr in ['inter', 'param', 'state', 'input']:
             dct[attr] = {k:v.value for k, v in vars.items() if v.type == attr}
@@ -389,7 +394,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
     def __setitem__(self, key, value):
         var = getattr(self, key, None)
-        if var is None or var.type == 'local':
+        if var is None:
             raise AttributeError(key)
         dct = getattr(self, var.type)
         if hasattr(value, "__len__"):
@@ -397,10 +402,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         dct[key] = value
 
     def set_attrs(self, skip=False, **kwargs):
-        for k, v in kwargs.items():
-            if skip and (k not in self.vars or self.vars[k].type == 'local'):
+        for key, val in kwargs.items():
+            if skip and key not in self.vars:
                 continue
-            self[k] = v
+            self[key] = val
 
     def set_bounds(self, **kwargs):
         for key, val in kwargs.items():
@@ -477,7 +482,7 @@ class modeldict(collections.MutableMapping):
         if key == 'id':
             return self['id']
         model = self.store['model']
-        if key in model.vars and model.vars[key].type != 'local':
+        if key in model.vars:
             var = copy.deepcopy(getattr(model, key))
             var.id = self.store['id']
             return var

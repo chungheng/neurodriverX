@@ -109,8 +109,6 @@ class LPU(object):
 
         attr = {'model': _class, 'id': kwargs.pop('id', '')}
         for key in new_obj.vars:
-            if new_obj.vars[key].type == 'local':
-                continue
             val = kwargs.pop(key, new_obj[key])
             if not isinstance(val, numbers.Number):
                 raise ValueError("Variable {} should be a number".format(key))
