@@ -315,7 +315,7 @@ class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
 
         defaults = dct['defaults']
-        bounds = dict()
+        bound = dict()
 
         for key, val in defaults.items():
             if hasattr(val, '__len__'):
@@ -324,9 +324,9 @@ class ModelMetaClass(type):
                     "(initial value, upper bound, lower bound), " + \
                     "but {} is given.".format(val)
                 defaults[key] = val[0]
-                bounds[key] = val[1:]
+                bound[key] = val[1:]
 
-        dct['bounds'] = bounds
+        dct['bound'] = bound
 
         if 'backend' not in dct:
             dct['backend'] = 'scalar'
