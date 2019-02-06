@@ -275,7 +275,7 @@ class LPU(object):
                     lst.count(lst[0]) == len(lst):
                     dct[key] = lst[0]
 
-    def _serialize_model_input(self):
+    def _serialize_model_inputs(self):
         for dct in self.models.values():
             dct['id2idx'] = {x:i for i,x in enumerate(dct['id'])}
             dct['input'] = dict()
