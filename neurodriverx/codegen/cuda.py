@@ -1,3 +1,5 @@
+import inspect
+
 from six import StringIO, get_function_globals, get_function_code
 from six import with_metaclass
 from functools import wraps
@@ -7,7 +9,6 @@ from jinja2 import Template
 # from pycuda.tools import dtype_to_ctype
 
 from pycodegen.codegen import CodeGenerator
-from pycodegen.utils import get_func_signature
 
 cuda_src_template = """
 {% set float_char = 'f' if float_type == 'float' else '' %}
@@ -336,8 +337,13 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         for key, val in self.param.items():
             if key in self.used_variables and hasattr(val, '__len__'):
-                self.signature.append("{} {}".format(self.dtype, key.upper()))
+                msg = "const {} {}".format(self.dtype, key.upper())
+                self.signature.append(msg)
 
+        full_args = inspect.getargspec(self.func)
+        num_offset = len(full_args.args or []) - len(full_args.defaults or [])
+        for arg in full_args.args[num_offset:]:
+            self.signature.append("{} {}".format(self.dtype, arg))
 
     def process_jump(self, ins):
         if len(self.jump_targets) and self.jump_targets[0] == ins.offset:
