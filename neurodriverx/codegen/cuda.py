@@ -266,9 +266,7 @@ __global__ void {{ model_name }} (
 
 template_device_func = Template("""
 __device__ int {{ name }}(
-    {%- for var in signature %}
-    {{ var }}
-    {%- endfor %}
+    {{ signature|join(",\n    ") }}
 )
 {
     {%- for var in local %}
