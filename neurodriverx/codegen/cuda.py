@@ -504,7 +504,17 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         return func
 
-class CudaKernelGenerator(object):
+def compile_cuda_kernel(instance):
     """
     Generate CUDA kernel, ex. ode() and post().
     """
+    func_list = [x for x in ['ode', 'post'] if hasattr(instance, x)]
+    src = {}
+
+    for name in func_list:
+        func = getattr(instance, name)
+        codegen = CudaFuncGenerator(func, instance.locals[name],
+            instance.vars, instance.param)
+        src[name] = codegen.src
+
+    return src
