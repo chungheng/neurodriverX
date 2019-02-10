@@ -309,39 +309,47 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
         self.generate()
         self.generate_signature()
 
-        self.src = template_device_func.render(
+        fname = self.func.__name__
+
+        self.func_def = template_device_func.render(
             dtype = self.dtype,
-            name = self.func.__name__,
+            name = fname,
             local = self.local,
             signature = self.signature,
             used = self.used_variables,
             src = self.ostream.getvalue()
         )
+        self.func_call = "{}({});".format(fname, ", ".join(self.args))
 
     def _post_output(self):
         self.newline = ';\n'
         CodeGenerator._post_output(self)
 
     def generate_signature(self):
-        self.signature = "__device__ int {}(\n".format(self.func.__name__)
 
         self.signature = []
+        self.args = []
         if "state" in self.used_variables:
             self.signature.append("State &state")
+            self.args.append("state")
         if "grad" in self.used_variables:
             self.signature.append("State &grad")
+            self.args.append("grad")
         if "inter" in self.used_variables:
             self.signature.append("Inter &inter")
+            self.args.append("inter")
 
         for key, val in self.param.items():
             if key in self.used_variables and hasattr(val, '__len__'):
                 msg = "const {} {}".format(self.dtype, key.upper())
                 self.signature.append(msg)
+                self.args.append(key.upper())
 
         full_args = inspect.getargspec(self.func)
         num_offset = len(full_args.args or []) - len(full_args.defaults or [])
         for arg in full_args.args[num_offset:]:
             self.signature.append("{} {}".format(self.dtype, arg))
+            self.args.append(arg)
 
     def process_jump(self, ins):
         if len(self.jump_targets) and self.jump_targets[0] == ins.offset:
@@ -507,12 +515,14 @@ def compile_cuda_kernel(instance):
     Generate CUDA kernel, ex. ode() and post().
     """
     func_list = [x for x in ['ode', 'post'] if hasattr(instance, x)]
-    src = {}
+    func_src = {}
+    func_call = {}
 
     for name in func_list:
         func = getattr(instance, name)
         codegen = CudaFuncGenerator(func, instance.locals[name],
             instance.vars, instance.param)
-        src[name] = codegen.src
+        func_src[name] = codegen.func_def
+        func_call[name] = codegen.func_call
 
-    return src
+    return func_src, func_call
