@@ -528,11 +528,24 @@ def compile_cuda_kernel(instance):
     func_src = {}
     func_call = {}
 
+    param_constant = {}
+    param_nonconst = {}
+    for key, val in instance.params.items():
+        if hasattr(val, '__len__'):
+            param_nonconst[key] = val
+        else:
+            param_constant[key] = val
+
     for name in func_list:
         func = getattr(instance, name)
         codegen = CudaFuncGenerator(func, instance.locals[name],
-            instance.vars, instance.param)
+            instance.vars, param_nonconst)
         func_src[name] = codegen.func_def
         func_call[name] = codegen.func_call
+
+    src_define = template_define.render(
+        param_constant = param_constant,
+        bound = instance.bound
+    )
 
     return func_src, func_call
