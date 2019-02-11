@@ -10,267 +10,86 @@ from jinja2 import Template
 
 from pycodegen.codegen import CodeGenerator
 
-cuda_src_template = """
-{% set float_char = 'f' if float_type == 'float' else '' %}
-{% for key, val in params.items() -%}
-{%- if key not in params_gdata -%}
-#define  {{ key.upper() }}\t\t{{ val }}
-{% endif -%}
-{% endfor -%}
-{%- if bounds -%}
-{%- for key, val in bounds.items() %}
-#define  {{ key.upper() }}_MIN\t\t{{ val[0] }}
-#define  {{ key.upper() }}_MAX\t\t{{ val[1] }}
-{%- endfor -%}
-{% endif %}
+template_cuda_kernel = """
+{{ preprocessing_definition }}
 
-{%- if has_random %}
-#include <cuda.h>
-#include <curand.h>
-#include <curand_kernel.h>
+{{ struct_defintion }}
 
-extern "C"{
+{{ device_function_definition }}
 
-__global__ void  generate_seed(
-    int num,
-    curandState *seed
-)
-{
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int total_threads = gridDim.x * blockDim.x;
-
-    for (int nid = tid; nid < num; nid += total_threads)
-        curand_init(clock64(), nid, 0, &seed[nid]);
-
-    return;
-}
-{%- endif %}
-
-struct States {
-    {%- for key in states %}
-    {{ float_type }} {{ key }};
-    {%- endfor %}
-};
-{% if inters|length %}
-struct Inters {
-    {%- for key in inters %}
-    {{ float_type }} {{ key }};
-    {%- endfor %}
-};
-{% endif %}
-
-__device__ void forward(
-    States &states,
-    States &gstates,
-    {{ float_type }} dt
-)
-{
-    {%- for key in states %}
-    states.{{ key }} += dt * gstates.{{ key }};
-    {%- endfor %}
-}
-
-__device__ int ode(
-    States &states,
-    States &gstates
-    {%- if inters|length %},\n    Inters &inters{%- endif %}
-    {%- for key in params_gdata -%}
-    ,\n    {{ float_type }} {{ key.upper() }}
-    {%- endfor %}
-    {%- for (key, ftype, isArray) in ode_signature -%}
-    ,\n    {{ ftype }} &{{ key }}
-    {%- endfor %}
-    {%- if ode_has_random %},\n    curandState &seed{%- endif %}
-)
-{
-    {%- for line in ode_declaration %}
-    {{ float_type }} {{ line }};
-    {%- endfor %}
-
-{{ ode_src -}}
-}
-
-{% if post_src|length > 0 %}
-/* post processing */
-__device__ int post(
-    States &states
-    {%- if inters|length %},\n    Inters &inters{%- endif %}
-    {%- for key in params_gdata -%}
-    ,\n    {{ float_type }} {{ key.upper() }}
-    {%- endfor %}
-    {%- for (key, ftype, isArray) in post_signature -%}
-    ,\n    {{ ftype }} &{{ key }}
-    {%- endfor %}
-)
-{
-    {%- for line in post_declaration %}
-    {{ float_type }} {{ line }};
-    {%- endfor %}
-
-{{ post_src -}}
-}
-{%- endif %}
+{{ solver_defintion }}
 
 __global__ void {{ model_name }} (
-    int num_thread,
-    {{ float_type }} dt
-    {%- for key in states -%}
-    ,\n    {{ float_type }} *g_{{ key }}
-    {%- endfor %}
-    {%- if inters|length %}
-    {%- for key in inters -%}
-    ,\n    {{ float_type }} *g_{{ key }}
-    {%- endfor %}
-    {%- for key in params_gdata -%}
-    ,\n    {{ float_type }} *g_{{ key }}
-    {%- endfor %}
-    {%- endif %}
-    {%- for (key, ftype, isArray) in ode_signature -%}
-    {%- if isArray -%}
-    ,\n    {{ ftype }} *g_{{ key }}
-    {%-  else -%}
-    ,\n    {{ ftype }} {{ key }}
-    {%- endif %}
-    {%- endfor %}
-    {%- if post_src|length > 0 -%}
-    {%- for (key, ftype, isArray) in post_signature -%}
-    {%- if isArray -%}
-    ,\n    {{ ftype }} *g_{{ key }}
-    {%-  else -%}
-    ,\n    {{ ftype }} {{ key }}
-    {%- endif %}
-    {%- endfor %}
-    {%- endif %}
-    {%- if ode_has_random %},\n    curandState *seed{%- endif %}
+    {{ kernel_arguments }}
 )
 {
     /* TODO: option for 1-D or 2-D */
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = gridDim.x * blockDim.x;
 
+    States state, grad;
+    {%- if inters|length %}
+    Inters inters;
+    {% endif %}
+
     for (int nid = tid; nid < num_thread; nid += total_threads) {
 
-        States states, gstates;
-        {%- if inters|length %}
-        Inters inters;
-        {% endif %}
+        {{ import_data }}
 
-        /* import data */
-        {%- for key in states %}
-        states.{{ key }} = g_{{ key }}[nid];
-        {%- endfor %}
-        {%- if inters|length %}
-        {%- for key in inters %}
-        inters.{{ key }} = g_{{ key }}[nid];
-        {%- endfor %}
-        {%- endif %}
-        {%- for key in params_gdata %}
-        {{ float_type }} {{ key.upper() }} = g_{{ key }}[nid];
-        {%- endfor %}
-        {%- for (key, ftype, isArray) in ode_signature %}
-        {%- if isArray %}
-        {{ ftype }} {{ key }} = g_{{ key }}[nid];
-        {%-  endif %}
-        {%- endfor %}
-        {%- if post_src|length > 0 -%}
-        {%- for (key, ftype, isArray) in post_signature %}
-        {%- if isArray %}
-        {{ ftype }} {{ key }} = g_{{ key }}[nid];
-        {%-  endif %}
-        {%- endfor %}
-        {%-  endif %}
+        {{ sovler_invocation }}
 
-        {% macro call_ode(states=states, gstates=gstates) -%}
-        ode(states, gstates
-            {%- if inters|length %}, inters{%  endif %}
-            {%- for key in params_gdata -%}
-            , {{ key.upper() }}
-            {%- endfor -%}
-            {%- for (key, _, _) in ode_signature -%}
-            , {{ key }}
-            {%- endfor -%}
-            {%- if ode_has_random -%}, seed[nid]{%- endif -%}
-        );
-        {%- endmacro %}
+        {{ post_invocation|length > 0 }}
 
-        {%- if solver == 'forward_euler' %}
-        {%  if run_step %}{%  endif %}
-        /* compute gradient */
-        {{ call_ode() }}
-
-        /* solve ode */
-        forward(states, gstates, dt);
-        {%- elif solver == 'runge_kutta' %}
-        States k1, k2, k3, k4, tmp;
-        {{ call_ode(gstates='k1') }}
-        tmp = states;
-        forward(tmp, k1, dt*0.5);
-        {{ call_ode(states='tmp', gstates='k2') }}
-        tmp = states;
-        forward(tmp, k2, dt*0.5);
-        {{ call_ode(states='tmp', gstates='k3') }}
-        tmp = states;
-        forward(tmp, k3, dt);
-        {{ call_ode(states='tmp', gstates='k4') }}
-
-        forward(states, k1, dt/6.);
-        forward(states, k2, dt/3.);
-        forward(states, k3, dt/3.);
-        forward(states, k4, dt/6.);
-        {%- endif %}
-
-        {% if bounds -%}
-        /* clip */
-        clip(states);
-        {%- endif %}
-
-        {% if post_src|length > 0 -%}
-        /* post processing */
-        post(states
-            {%- if inters|length %}, inters{%  endif %}
-            {%- for key in params_gdata -%}
-            , {{ key.upper() }}
-            {%- endfor -%}
-            {%- for (key, _, _) in post_signature -%}
-            , {{ key }}
-            {%- endfor -%}
-        );
-        {%- endif %}
-
-        /* export data */
-        {%- for key in states %}
-        g_{{ key }}[nid] = states.{{ key }};
-        {%- endfor %}
-        {%- if inters|length %}
-        {%- for key in inters %}
-        g_{{ key }}[nid] = inters.{{ key }};
-        {%- endfor %}
-        {% endif %}
+        {{ export_data }}
     }
 
     return;
 }
-
-{% if has_random %}}{%- endif %}
 """
 
-template_define = Template("""
+template_define_struct = Template("""
+struct {{ name }} {
+    {%- for key in dct %}
+    {{ float_type }} {{ key }};
+    {%- endfor %}
+};
+""")
+
+template_define_preprocessing = Template("""
+/* Define constant parameters */
 {% for key, val in param_constant.items() -%}
 #define  {{ key.upper() }}\t\t{{ val }}
 {% endfor -%}
+/* Define upper and lower bounds of state variables */
 {%- for key, val in bound.items() %}
 #define  {{ key.upper() }}_MIN\t\t{{ val[0] }}
 #define  {{ key.upper() }}_MAX\t\t{{ val[1] }}
 {%- endfor -%}
 """)
 
-template_bound = Template("""
-__device__ void clip(States &states)
+template_clip = Template("""
+__device__ void clip(States &state)
 {
-    {%- for key, val in bounds.items() %}
-    states.{{ key }} = fmax{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MIN);
-    states.{{ key }} = fmin{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MAX);
+    {%- for key, val in bound.items() %}
+    state.{{ key }} = fmax{{ float_char }}(state.{{ key }}, {{ key.upper() }}_MIN);
+    state.{{ key }} = fmin{{ float_char }}(state.{{ key }}, {{ key.upper() }}_MAX);
     {%- endfor %}
+}
+""")
+
+template_forward_euler = Template("""
+__device__ int forward(
+    dtype dt,
+    {{ signature|join(",\n    ") }}
+)
+{
+    {{ ode_invocation }}
+
+    {%- for key in states %}
+    states.{{ key }} += dt * gstates.{{ key }};
+    {%- endfor %}
+
+    {{ clip_invocation|length > 0 }}
 }
 """)
 
@@ -520,17 +339,20 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         return func
 
-def compile_cuda_kernel(instance):
+def compile_cuda_kernel(instance, dtype=np.float64):
     """
     Generate CUDA kernel, ex. ode() and post().
     """
+    dtype = 'float' if dtype == np.float32 else 'double'
+
     func_list = [x for x in ['ode', 'post'] if hasattr(instance, x)]
     func_src = {}
     func_call = {}
+    func_args = {}
 
     param_constant = {}
     param_nonconst = {}
-    for key, val in instance.params.items():
+    for key, val in instance.param.items():
         if hasattr(val, '__len__'):
             param_nonconst[key] = val
         else:
@@ -542,10 +364,27 @@ def compile_cuda_kernel(instance):
             instance.vars, param_nonconst)
         func_src[name] = codegen.func_def
         func_call[name] = codegen.func_call
+        func_args[name] = codegen.args
 
-    src_define = template_define.render(
+    src_preprocessing = template_define_preprocessing.render(
         param_constant = param_constant,
         bound = instance.bound
     )
+    print(src_preprocessing)
+
+    src_struct = template_define_struct.render(
+        name = 'State',
+        dct = instance.state,
+        dtype = dtype
+    )
+    print(src_struct)
+
+    for name in func_list:
+        print(func_src[name])
+
+    src_clip = template_clip.render(
+        bound = instance.bound
+    )
+    print(src_clip)
 
     return func_src, func_call
