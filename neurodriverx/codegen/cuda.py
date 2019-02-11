@@ -59,16 +59,6 @@ struct Inters {
 };
 {% endif %}
 
-{%- if bounds %}
-__device__ void clip(States &states)
-{
-    {%- for key, val in bounds.items() %}
-    states.{{ key }} = fmax{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MIN);
-    states.{{ key }} = fmin{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MAX);
-    {%- endfor %}
-}
-{%- endif %}
-
 __device__ void forward(
     States &states,
     States &gstates,
@@ -263,6 +253,26 @@ __global__ void {{ model_name }} (
 
 {% if has_random %}}{%- endif %}
 """
+
+template_define = Template("""
+{% for key, val in param_constant.items() -%}
+#define  {{ key.upper() }}\t\t{{ val }}
+{% endfor -%}
+{%- for key, val in bound.items() %}
+#define  {{ key.upper() }}_MIN\t\t{{ val[0] }}
+#define  {{ key.upper() }}_MAX\t\t{{ val[1] }}
+{%- endfor -%}
+""")
+
+template_bound = Template("""
+__device__ void clip(States &states)
+{
+    {%- for key, val in bounds.items() %}
+    states.{{ key }} = fmax{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MIN);
+    states.{{ key }} = fmin{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MAX);
+    {%- endfor %}
+}
+""")
 
 template_device_func = Template("""
 __device__ int {{ name }}(
