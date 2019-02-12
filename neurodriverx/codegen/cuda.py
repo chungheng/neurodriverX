@@ -10,47 +10,43 @@ from jinja2 import Template
 
 from pycodegen.codegen import CodeGenerator
 
-template_cuda_kernel = """
+template_cuda_kernel = Template("""
 {{ preprocessing_definition }}
-
-{{ struct_defintion }}
-
-{{ device_function_definition }}
-
+{{ struct_definition|join("\n") }}
+{{ clip_definition }}
+{{ device_function_definition|join("\n") }}
 {{ solver_defintion }}
 
 __global__ void {{ model_name }} (
-    {{ kernel_arguments }}
+    {{ kernel_arguments|join(",\n    ") }}
 )
 {
     /* TODO: option for 1-D or 2-D */
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = gridDim.x * blockDim.x;
 
-    States state, grad;
-    {%- if inters|length %}
-    Inters inters;
-    {% endif %}
+    {{ struct_declaration|join("\n    ") }}
 
     for (int nid = tid; nid < num_thread; nid += total_threads) {
 
-        {{ import_data }}
+        {{ import_data|join(",\n        ") }}
 
         {{ sovler_invocation }}
 
-        {{ post_invocation|length > 0 }}
+        {{ post_invocation }}
 
-        {{ export_data }}
+        {{ export_data|join(",\n        ") }}
     }
 
     return;
 }
 """
+)
 
 template_define_struct = Template("""
 struct {{ name }} {
     {%- for key in dct %}
-    {{ float_type }} {{ key }};
+    {{ dtype }} {{ key }};
     {%- endfor %}
 };
 """)
@@ -65,6 +61,7 @@ template_define_preprocessing = Template("""
 #define  {{ key.upper() }}_MIN\t\t{{ val[0] }}
 #define  {{ key.upper() }}_MAX\t\t{{ val[1] }}
 {%- endfor -%}
+
 """)
 
 template_clip = Template("""
@@ -79,17 +76,15 @@ __device__ void clip(States &state)
 
 template_forward_euler = Template("""
 __device__ int forward(
-    dtype dt,
+    {{ dtype }} dt,
     {{ signature|join(",\n    ") }}
 )
 {
     {{ ode_invocation }}
-
-    {%- for key in states %}
-    states.{{ key }} += dt * gstates.{{ key }};
+    {% for key in state %}
+    state.{{ key }} += dt * grad.{{ key }};
     {%- endfor %}
-
-    {{ clip_invocation|length > 0 }}
+    {{ clip_invocation }}
 }
 """)
 
@@ -140,7 +135,7 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         fname = self.func.__name__
 
-        self.func_def = template_device_func.render(
+        self.definition = template_device_func.render(
             dtype = self.dtype,
             name = fname,
             local = self.local,
@@ -148,7 +143,7 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
             used = self.used_variables,
             src = self.ostream.getvalue()
         )
-        self.func_call = "{}({});".format(fname, ", ".join(self.args))
+        self.invocation = "{}({});".format(fname, ", ".join(self.args))
 
     def _post_output(self):
         self.newline = ';\n'
@@ -345,10 +340,7 @@ def compile_cuda_kernel(instance, dtype=np.float64):
     """
     dtype = 'float' if dtype == np.float32 else 'double'
 
-    func_list = [x for x in ['ode', 'post'] if hasattr(instance, x)]
-    func_src = {}
-    func_call = {}
-    func_args = {}
+    funcs = {x: None for x in ['ode', 'post'] if hasattr(instance, x)}
 
     param_constant = {}
     param_nonconst = {}
@@ -358,33 +350,86 @@ def compile_cuda_kernel(instance, dtype=np.float64):
         else:
             param_constant[key] = val
 
-    for name in func_list:
-        func = getattr(instance, name)
-        codegen = CudaFuncGenerator(func, instance.locals[name],
+    for name in funcs.keys():
+        f = getattr(instance, name)
+        funcs[name] = CudaFuncGenerator(f , instance.locals[name],
             instance.vars, param_nonconst)
-        func_src[name] = codegen.func_def
-        func_call[name] = codegen.func_call
-        func_args[name] = codegen.args
 
     src_preprocessing = template_define_preprocessing.render(
         param_constant = param_constant,
         bound = instance.bound
     )
-    print(src_preprocessing)
 
-    src_struct = template_define_struct.render(
-        name = 'State',
-        dct = instance.state,
-        dtype = dtype
+    src_struct_definition = []
+    src_struct_declaration = []
+    if instance.state:
+        src = template_define_struct.render(
+            name = 'State',
+            dct = instance.state,
+            dtype = dtype
+        )
+        src_struct_definition.append(src)
+        src_struct_declaration.append("State state, grad;")
+
+    if instance.inter:
+        src = template_define_struct.render(
+            name = 'Inter',
+            dct = instance.inter,
+            dtype = dtype
+        )
+        src_struct_definition.append(src)
+        src_struct_declaration.append("Inter inter;")
+
+    src_clip_definition = ""
+    src_clip_invocation = ""
+    if instance.bound:
+        src_clip_definition = template_clip.render(
+            bound = instance.bound
+        )
+        src_clip_invocation = "clip(state);"
+
+    src_forward_euler_definition = template_forward_euler.render(
+        dtype = dtype,
+        signature = funcs['ode'].signature,
+        ode_invocation = funcs['ode'].invocation,
+        clip_invocation = src_clip_invocation,
+        state = instance.state
     )
-    print(src_struct)
+    src_forward_euler_invocation = "forward(dt, {});".format(
+        ", ".join(funcs['ode'].args))
 
-    for name in func_list:
-        print(func_src[name])
+    src_import, src_export = [], []
+    src_signature = ["int num_tread", "{} dt".format(dtype)]
 
-    src_clip = template_clip.render(
-        bound = instance.bound
+    for key in instance.state.keys():
+        src_signature.append( "{} *g_{}".format(dtype, key) )
+        src_export.append( "g_{0}[tid] = state.{0}".format(key) )
+        src_import.append( "state.{0} = g_{0}[tid]".format(key) )
+
+    for key in instance.inter.keys():
+        src_signature.append( "{} *g_{}".format(dtype, key) )
+        src_export.append( "g_{0}[tid] = inter.{0}".format(key) )
+        src_import.append( "inter.{0} = g_{0}[tid]".format(key) )
+
+    for key in param_nonconst.keys():
+        src_signature.append( "{} *g_{}".format(dtype, key.upper()) )
+        src_import.append( "{0} = g_{0}[tid]".format(key.upper()) )
+
+    for key in instance.input.keys():
+        src_signature.append( "{} *g_{}".format(dtype, key.upper()) )
+
+    src_kernel_definition = template_cuda_kernel.render(
+        preprocessing_definition = src_preprocessing,
+        struct_definition = src_struct_definition,
+        clip_definition = src_clip_definition,
+        device_function_definition = [f.definition for f in funcs.values()],
+        solver_defintion = src_forward_euler_definition,
+        model_name = instance.__class__.__name__,
+        kernel_arguments = src_signature,
+        struct_declaration = src_struct_declaration,
+        import_data = src_import,
+        sovler_invocation = src_forward_euler_invocation,
+        post_invocation = funcs['post'].invocation,
+        export_data = src_export
     )
-    print(src_clip)
-
-    return func_src, func_call
+    return src_kernel_definition
