@@ -6,7 +6,6 @@ from functools import wraps
 import random
 import numpy as np
 from jinja2 import Template
-# from pycuda.tools import dtype_to_ctype
 
 from pycodegen.codegen import CodeGenerator
 
@@ -29,13 +28,13 @@ __global__ void {{ model_name }} (
 
     for (int nid = tid; nid < num_thread; nid += total_threads) {
 
-        {{ import_data|join(",\n        ") }}
+        {{ import_data|join("\n        ") }}
 
         {{ sovler_invocation }}
 
         {{ post_invocation }}
 
-        {{ export_data|join(",\n        ") }}
+        {{ export_data|join("\n        ") }}
     }
 
     return;
@@ -403,20 +402,21 @@ def compile_cuda_kernel(instance, dtype=np.float64):
 
     for key in instance.state.keys():
         src_signature.append( "{} *g_{}".format(dtype, key) )
-        src_export.append( "g_{0}[tid] = state.{0}".format(key) )
-        src_import.append( "state.{0} = g_{0}[tid]".format(key) )
+        src_export.append( "g_{0}[tid] = state.{0};".format(key) )
+        src_import.append( "state.{0} = g_{0}[tid];".format(key) )
 
     for key in instance.inter.keys():
         src_signature.append( "{} *g_{}".format(dtype, key) )
-        src_export.append( "g_{0}[tid] = inter.{0}".format(key) )
-        src_import.append( "inter.{0} = g_{0}[tid]".format(key) )
+        src_export.append( "g_{0}[tid] = inter.{0};".format(key) )
+        src_import.append( "inter.{0} = g_{0}[tid];".format(key) )
 
     for key in param_nonconst.keys():
         src_signature.append( "{} *g_{}".format(dtype, key.upper()) )
-        src_import.append( "{0} = g_{0}[tid]".format(key.upper()) )
+        src_import.append( "{0} {1} = g_{1}[tid];".format(dtype, key.upper()) )
 
     for key in instance.input.keys():
         src_signature.append( "{} *g_{}".format(dtype, key.upper()) )
+        src_import.append( "{0} {1} = g_{1}[tid];".format(dtype, key) )
 
     src_kernel_definition = template_cuda_kernel.render(
         preprocessing_definition = src_preprocessing,
