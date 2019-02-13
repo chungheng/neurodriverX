@@ -6,7 +6,8 @@ import numbers
 
 import networkx as nx
 import numpy as np
-
+import pycuda
+import pycuda.gpuarray as garray
 
 class Arr(object):
     def __init__(self, arr, idx):
@@ -309,7 +310,12 @@ class LPU(object):
                     if hasattr(val, '__len__'):
                         dct[key] = np.asarray(val)
         elif self.backend == 'pycuda':
-            pass
+            for model, dct in self.models.items():
+                for key in model.vars:
+                    val = dct[key]
+                    if hasattr(val, '__len__'):
+                        arr = np.asarray(val, dtype=self.dtype)
+                        dct[key] = garray.to_gpu(arr)
 
     def _instantiate_model(self):
         for model, dct in self.models.items():

@@ -117,6 +117,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
     def compile(self, backend=None):
         self.backend = backend or self.backend
 
+        if self.backend == 'pycuda':
+            self._compile_gpu()
+        else:
+            self._compile_cpu()
+
+    def _compile_cpu(self):
         func_list = [x for x in ['ode', 'post'] if hasattr(self, x)]
 
         for f in func_list:
@@ -132,6 +138,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 self.grad[k] = 0.
             elif self.backend == 'numpy':
                 self.grad[k] = np.zeros_like(self.state[k])
+
+    def _compile_gpu(self):
+        pass
 
     def ode(self):
         pass
