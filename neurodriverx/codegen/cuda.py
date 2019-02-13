@@ -1,4 +1,6 @@
 import inspect
+from types import SimpleNamespace
+
 
 from six import StringIO, get_function_globals, get_function_code
 from six import with_metaclass
@@ -333,72 +335,77 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         return func
 
+
 class CudaKernelGenerator(object):
     """
     Generate CUDA kernel, ex. ode() and post().
     """
-
     def __init__(self, instance, dtype=np.float64):
         self.instance = instance
         self.dtype = 'float' if dtype == np.float32 else 'double'
 
-        self.funcs = {x: None for x in ['ode', 'post'] if hasattr(instance, x)}
+        funcs = {x: None for x in ['ode', 'post'] if hasattr(instance, x)}
 
-        self.param_constant = {}
-        self.param_nonconst = {}
+        param_constant = {}
+        param_nonconst = {}
         for key, val in self.instance.param.items():
             if hasattr(val, '__len__'):
-                self.param_nonconst[key] = val
+                param_nonconst[key] = val
             else:
-                self.param_constant[key] = val
+                param_constant[key] = val
 
         for name in funcs.keys():
             f = getattr(instance, name)
             funcs[name] = CudaFuncGenerator(f , instance.locals[name],
-                instance.vars, self.param_nonconst)
+                instance.vars, param_nonconst)
 
-        src_preprocessing = generate_preprocessing()
-        src_struct_definition, src_struct_declaration = generate_struct()
-        src_clip_definition, src_clip_invocation = generate_clip()
-        src_forward_euler_definition, src_forward_euler_invocation = generate_forward(func['ode'], src_clip_invocation)
-        src_import, src_export, src_signature = generate_signature_import_export()
+        preprocessing = self.generate_preprocessing(param_constant)
+        struct = self.generate_struct()
+        clip = self.generate_clip()
+        forward = self.generate_forward(funcs['ode'], clip.invocation)
+        kernel_io = self.generate_kernel_io(param_nonconst)
+
+        if issubclass(instance, type):
+            model = instance
+        else:
+            model = instance.__class__
+        name = model.__name__
 
         self.src_kernel_definition = template_cuda_kernel.render(
-            preprocessing_definition = src_preprocessing,
-            struct_definition = src_struct_definition,
-            clip_definition = src_clip_definition,
+            preprocessing_definition = preprocessing,
+            struct_definition = struct.definition,
+            clip_definition = clip.definition,
             device_function_definition = [f.definition for f in funcs.values()],
-            solver_defintion = src_forward_euler_definition,
-            model_name = instance.__class__.__name__,
-            kernel_arguments = src_signature,
-            struct_declaration = src_struct_declaration,
-            import_data = src_import,
-            sovler_invocation = src_forward_euler_invocation,
+            solver_defintion = forward.definition,
+            model_name = name,
+            kernel_arguments = kernel_io.signature,
+            struct_declaration = struct.declaration,
+            import_data = kernel_io.read,
+            sovler_invocation = forward.invocation,
             post_invocation = funcs['post'].invocation,
-            export_data = src_export
+            export_data = kernel_io.write
         )
 
-    def generate_preprocessing(self):
+    def generate_preprocessing(self, param_constant):
         src = template_define_preprocessing.render(
             param_constant = param_constant,
             bound = self.instance.bound
         )
-        return FuncSrc(src, None)
+        return src
 
     def generate_struct(self):
         """
         Generate structure definition.
         """
-        src_struct_definition = []
-        src_struct_declaration = []
+        output = SimpleNamespace(definition = [], declaration = [])
         if self.instance.state:
             src = template_define_struct.render(
                 name = 'State',
                 dct = self.instance.state,
                 dtype = self.dtype
             )
-            src_struct_definition.append(src)
-            src_struct_declaration.append("State state, grad;")
+            output.definition.append(src)
+            output.declaration.append("State state, grad;")
 
         if self.instance.inter:
             src = template_define_struct.render(
@@ -406,55 +413,58 @@ class CudaKernelGenerator(object):
                 dct = self.instance.inter,
                 dtype = self.dtype
             )
-            src_struct_definition.append(src)
-            src_struct_declaration.append("Inter inter;")
-        return src_struct_definition, src_struct_declaration
+            output.definition.append(src)
+            output.declaration.append("Inter inter;")
+        return output
 
     def generate_clip(self):
         """
         Generate clip definition.
         """
-        src_clip_definition = ""
-        src_clip_invocation = ""
+        output = SimpleNamespace(definition = "", invocation = "")
         if self.instance.bound:
-            src_clip_definition = template_clip.render(
+            output.definition = template_clip.render(
                 bound = self.instance.bound
             )
-            src_clip_invocation = "clip(state);"
-        return src_clip_definition, src_clip_invocation
+            output.invocation = "clip(state);"
+        return output
 
     def generate_forward(self, ode, src_clip_invocation):
-        src_forward_euler_definition = template_forward_euler.render(
+        output = SimpleNamespace(definition = "", invocation = "")
+        output.definition = template_forward_euler.render(
             dtype = self.dtype,
             signature = ode.signature,
             ode_invocation = ode.invocation,
             clip_invocation = src_clip_invocation,
             state = self.instance.state
         )
-        src_forward_euler_invocation = "forward(dt, {});".format(
-            ", ".join(ode.args))
-        return src_forward_euler_definition, src_forward_euler_invocation
+        output.invocation = "forward(dt, {});".format(", ".join(ode.args))
+        return output
 
-    def generate_signature_import_export(self):
-        src_import, src_export = [], []
-        src_signature = ["int num_tread", "{} dt".format(self.dtype)]
+    def generate_kernel_io(self, param_nonconst):
+        """
+        Handle signature for cuda kernel, and export/import for global memory
+        """
+        output = SimpleNamespace(read = [], write = [], signature = [])
+        output.signature.append(["int num_tread", "{} dt".format(self.dtype)])
 
         for key in self.instance.state.keys():
-            src_signature.append( "{} *g_{}".format(self.dtype, key) )
-            src_export.append( "g_{0}[tid] = state.{0};".format(key) )
-            src_import.append( "state.{0} = g_{0}[tid];".format(key) )
+            output.signature.append("{} *g_{}".format(self.dtype, key))
+            output.read.append("g_{0}[tid] = state.{0};".format(key))
+            output.write.append("state.{0} = g_{0}[tid];".format(key))
 
         for key in self.instance.inter.keys():
-            src_signature.append( "{} *g_{}".format(self.dtype, key) )
-            src_export.append( "g_{0}[tid] = inter.{0};".format(key) )
-            src_import.append( "inter.{0} = g_{0}[tid];".format(key) )
+            output.signature.append("{} *g_{}".format(self.dtype, key))
+            output.read.append("g_{0}[tid] = inter.{0};".format(key))
+            output.write.append("inter.{0} = g_{0}[tid];".format(key))
 
+        template = "{0} {1} = g_{1}[tid];"
         for key in param_nonconst.keys():
-            src_signature.append( "{} *g_{}".format(self.dtype, key.upper()) )
-            src = "{0} {1} = g_{1}[tid];".format(self.dtype, key.upper())
-            src_import.append( src )
+            output.signature.append("{} *g_{}".format(self.dtype, key.upper()))
+            output.read.append(template.format(self.dtype, key.upper()))
 
         for key in self.instance.input.keys():
-            src_signature.append( "{} *g_{}".format(self.dtype, key.upper()) )
-            src_import.append( "{0} {1} = g_{1}[tid];".format(self.dtype, key) )
-        return src_import, src_export, src_signature
+            output.signature.append("{} *g_{}".format(self.dtype, key.upper()))
+            output.read.append(template.format(self.dtype, key) )
+
+        return output
