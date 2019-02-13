@@ -333,103 +333,128 @@ class CudaFuncGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         return func
 
-def compile_cuda_kernel(instance, dtype=np.float64):
+class CudaKernelGenerator(object):
     """
     Generate CUDA kernel, ex. ode() and post().
     """
-    dtype = 'float' if dtype == np.float32 else 'double'
 
-    funcs = {x: None for x in ['ode', 'post'] if hasattr(instance, x)}
+    def __init__(self, instance, dtype=np.float64):
+        self.instance = instance
+        self.dtype = 'float' if dtype == np.float32 else 'double'
 
-    param_constant = {}
-    param_nonconst = {}
-    for key, val in instance.param.items():
-        if hasattr(val, '__len__'):
-            param_nonconst[key] = val
-        else:
-            param_constant[key] = val
+        self.funcs = {x: None for x in ['ode', 'post'] if hasattr(instance, x)}
 
-    for name in funcs.keys():
-        f = getattr(instance, name)
-        funcs[name] = CudaFuncGenerator(f , instance.locals[name],
-            instance.vars, param_nonconst)
+        self.param_constant = {}
+        self.param_nonconst = {}
+        for key, val in self.instance.param.items():
+            if hasattr(val, '__len__'):
+                self.param_nonconst[key] = val
+            else:
+                self.param_constant[key] = val
 
-    src_preprocessing = template_define_preprocessing.render(
-        param_constant = param_constant,
-        bound = instance.bound
-    )
+        for name in funcs.keys():
+            f = getattr(instance, name)
+            funcs[name] = CudaFuncGenerator(f , instance.locals[name],
+                instance.vars, self.param_nonconst)
 
-    src_struct_definition = []
-    src_struct_declaration = []
-    if instance.state:
-        src = template_define_struct.render(
-            name = 'State',
-            dct = instance.state,
-            dtype = dtype
+        src_preprocessing = generate_preprocessing()
+        src_struct_definition, src_struct_declaration = generate_struct()
+        src_clip_definition, src_clip_invocation = generate_clip()
+        src_forward_euler_definition, src_forward_euler_invocation = generate_forward(func['ode'], src_clip_invocation)
+        src_import, src_export, src_signature = generate_signature_import_export()
+
+        self.src_kernel_definition = template_cuda_kernel.render(
+            preprocessing_definition = src_preprocessing,
+            struct_definition = src_struct_definition,
+            clip_definition = src_clip_definition,
+            device_function_definition = [f.definition for f in funcs.values()],
+            solver_defintion = src_forward_euler_definition,
+            model_name = instance.__class__.__name__,
+            kernel_arguments = src_signature,
+            struct_declaration = src_struct_declaration,
+            import_data = src_import,
+            sovler_invocation = src_forward_euler_invocation,
+            post_invocation = funcs['post'].invocation,
+            export_data = src_export
         )
-        src_struct_definition.append(src)
-        src_struct_declaration.append("State state, grad;")
 
-    if instance.inter:
-        src = template_define_struct.render(
-            name = 'Inter',
-            dct = instance.inter,
-            dtype = dtype
+    def generate_preprocessing(self):
+        src = template_define_preprocessing.render(
+            param_constant = param_constant,
+            bound = self.instance.bound
         )
-        src_struct_definition.append(src)
-        src_struct_declaration.append("Inter inter;")
+        return FuncSrc(src, None)
 
-    src_clip_definition = ""
-    src_clip_invocation = ""
-    if instance.bound:
-        src_clip_definition = template_clip.render(
-            bound = instance.bound
+    def generate_struct(self):
+        """
+        Generate structure definition.
+        """
+        src_struct_definition = []
+        src_struct_declaration = []
+        if self.instance.state:
+            src = template_define_struct.render(
+                name = 'State',
+                dct = self.instance.state,
+                dtype = self.dtype
+            )
+            src_struct_definition.append(src)
+            src_struct_declaration.append("State state, grad;")
+
+        if self.instance.inter:
+            src = template_define_struct.render(
+                name = 'Inter',
+                dct = self.instance.inter,
+                dtype = self.dtype
+            )
+            src_struct_definition.append(src)
+            src_struct_declaration.append("Inter inter;")
+        return src_struct_definition, src_struct_declaration
+
+    def generate_clip(self):
+        """
+        Generate clip definition.
+        """
+        src_clip_definition = ""
+        src_clip_invocation = ""
+        if self.instance.bound:
+            src_clip_definition = template_clip.render(
+                bound = self.instance.bound
+            )
+            src_clip_invocation = "clip(state);"
+        return src_clip_definition, src_clip_invocation
+
+    def generate_forward(self, ode, src_clip_invocation):
+        src_forward_euler_definition = template_forward_euler.render(
+            dtype = self.dtype,
+            signature = ode.signature,
+            ode_invocation = ode.invocation,
+            clip_invocation = src_clip_invocation,
+            state = self.instance.state
         )
-        src_clip_invocation = "clip(state);"
+        src_forward_euler_invocation = "forward(dt, {});".format(
+            ", ".join(ode.args))
+        return src_forward_euler_definition, src_forward_euler_invocation
 
-    src_forward_euler_definition = template_forward_euler.render(
-        dtype = dtype,
-        signature = funcs['ode'].signature,
-        ode_invocation = funcs['ode'].invocation,
-        clip_invocation = src_clip_invocation,
-        state = instance.state
-    )
-    src_forward_euler_invocation = "forward(dt, {});".format(
-        ", ".join(funcs['ode'].args))
+    def generate_signature_import_export(self):
+        src_import, src_export = [], []
+        src_signature = ["int num_tread", "{} dt".format(self.dtype)]
 
-    src_import, src_export = [], []
-    src_signature = ["int num_tread", "{} dt".format(dtype)]
+        for key in self.instance.state.keys():
+            src_signature.append( "{} *g_{}".format(self.dtype, key) )
+            src_export.append( "g_{0}[tid] = state.{0};".format(key) )
+            src_import.append( "state.{0} = g_{0}[tid];".format(key) )
 
-    for key in instance.state.keys():
-        src_signature.append( "{} *g_{}".format(dtype, key) )
-        src_export.append( "g_{0}[tid] = state.{0};".format(key) )
-        src_import.append( "state.{0} = g_{0}[tid];".format(key) )
+        for key in self.instance.inter.keys():
+            src_signature.append( "{} *g_{}".format(self.dtype, key) )
+            src_export.append( "g_{0}[tid] = inter.{0};".format(key) )
+            src_import.append( "inter.{0} = g_{0}[tid];".format(key) )
 
-    for key in instance.inter.keys():
-        src_signature.append( "{} *g_{}".format(dtype, key) )
-        src_export.append( "g_{0}[tid] = inter.{0};".format(key) )
-        src_import.append( "inter.{0} = g_{0}[tid];".format(key) )
+        for key in param_nonconst.keys():
+            src_signature.append( "{} *g_{}".format(self.dtype, key.upper()) )
+            src = "{0} {1} = g_{1}[tid];".format(self.dtype, key.upper())
+            src_import.append( src )
 
-    for key in param_nonconst.keys():
-        src_signature.append( "{} *g_{}".format(dtype, key.upper()) )
-        src_import.append( "{0} {1} = g_{1}[tid];".format(dtype, key.upper()) )
-
-    for key in instance.input.keys():
-        src_signature.append( "{} *g_{}".format(dtype, key.upper()) )
-        src_import.append( "{0} {1} = g_{1}[tid];".format(dtype, key) )
-
-    src_kernel_definition = template_cuda_kernel.render(
-        preprocessing_definition = src_preprocessing,
-        struct_definition = src_struct_definition,
-        clip_definition = src_clip_definition,
-        device_function_definition = [f.definition for f in funcs.values()],
-        solver_defintion = src_forward_euler_definition,
-        model_name = instance.__class__.__name__,
-        kernel_arguments = src_signature,
-        struct_declaration = src_struct_declaration,
-        import_data = src_import,
-        sovler_invocation = src_forward_euler_invocation,
-        post_invocation = funcs['post'].invocation,
-        export_data = src_export
-    )
-    return src_kernel_definition
+        for key in self.instance.input.keys():
+            src_signature.append( "{} *g_{}".format(self.dtype, key.upper()) )
+            src_import.append( "{0} {1} = g_{1}[tid];".format(self.dtype, key) )
+        return src_import, src_export, src_signature
