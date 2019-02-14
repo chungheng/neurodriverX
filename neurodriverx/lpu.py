@@ -300,7 +300,8 @@ class LPU(object):
                 num = [len(x) for x in val]
                 offset = np.cumsum(num)
                 offset = [0] + offset[:-1].tolist()
-                dct[key] = (sum(val, []), num, offset)
+                ptr = sum(val, [])
+                dct[key] = SimpleNamespace(ptr=ptr, num=num, offset=offset)
 
     def _allocate_data_memory(self):
         if self.backend == 'numpy':
@@ -340,13 +341,12 @@ class LPU(object):
         for dct in self.models.values():
             instance = dct['instance']
             for key, val in dct['input'].items():
-                arr, num, offset = val
-                for i, (n, o) in enumerate(zip(num, offset)):
+                for i, (n, o) in enumerate(zip(val.num, val.offset)):
                     if n == 0:
                         continue
                     total = 0.
                     for j in range(o, o+n):
-                        total += arr[j]()
+                        total += val.ptr[j]()
                     instance[key][i] = total
 
     def update(self, dt):
