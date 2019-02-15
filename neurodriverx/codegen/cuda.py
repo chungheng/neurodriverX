@@ -66,7 +66,7 @@ template_define_preprocessing = Template("""
 """)
 
 template_clip = Template("""
-__device__ void clip(States &state)
+__device__ void clip(State &state)
 {
     {%- for key, val in bound.items() %}
     state.{{ key }} = fmax{{ float_char }}(state.{{ key }}, {{ key.upper() }}_MIN);
@@ -76,7 +76,7 @@ __device__ void clip(States &state)
 """)
 
 template_forward_euler = Template("""
-__device__ int forward(
+__device__ void forward(
     {{ dtype }} dt,
     {{ signature|join(",\n    ") }}
 )
@@ -86,6 +86,7 @@ __device__ int forward(
     state.{{ key }} += dt * grad.{{ key }};
     {%- endfor %}
     {{ clip_invocation }}
+    return;
 }
 """)
 
