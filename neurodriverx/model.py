@@ -3,14 +3,18 @@ import copy
 import inspect
 import os
 import collections
-from types import MethodType
+from types import MethodType, SimpleNamespace
 
 from six import with_metaclass, get_function_globals
 
 import numpy as np
+import pycuda.gpuarray as garray
+import pycuda.driver as drv
+from pycuda.tools import DeviceData
+from pycuda.compiler import SourceModule
 
 from .codegen import _Variable, VariableAnalyzer, FuncGenerator, \
-    analyze_variable, compile_func
+    analyze_variable, compile_func, CudaKernelGenerator
 
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
@@ -139,8 +143,49 @@ class Model(with_metaclass(ModelMetaClass, object)):
             elif self.backend == 'numpy':
                 self.grad[k] = np.zeros_like(self.state[k])
 
+        self.update = self._update_cpu
+
     def _compile_gpu(self):
-        pass
+
+        codegen = CudaKernelGenerator(self)
+
+        # verify all gpuarray have equal length
+        num = [len(self[key]) for key in codegen.args]
+        assert num.count(num[0]) == len(num), "Variables have unequal lenth."
+        num = num[0]
+
+        try:
+            mod = SourceModule(codegen.src, options = ["--ptxas-options=-v"])
+            kernel = mod.get_function(self.__class__.__name__)
+            kernel.prepare(codegen.arg_ctype)
+        except:
+            for i, line in enumerate(codegen.src.split('\n')):
+                print("{}: {}".format(i, line))
+            raise
+
+        deviceData = DeviceData()
+        maxThreads = int(np.float(deviceData.registers // kernel.num_regs))
+        maxThreads = int(2**int(np.log(maxThreads) / np.log(2)))
+        threadsPerBlock = int(min(256, maxThreads, deviceData.max_threads))
+        numBlocks = (num-1) / threadsPerBlock + 1
+        deviceNumBlocks = 6 * drv.Context.get_device().MULTIPROCESSOR_COUNT
+
+        block = (threadsPerBlock, 1, 1)
+        grid = (int(min(numBlocks,deviceNumBlocks)), 1)
+
+        address = [self[key].gpudata for key in codegen.args]
+
+        self.gpu = SimpleNamespace(
+            args=codegen.args,
+            arg_address=address,
+            arg_ctype=codegen.arg_ctype,
+            block=block,
+            grid=grid,
+            kernel=kernel,
+            num_thread=num,
+            src=codegen.src)
+
+        self.update = self._update_gpu
 
     def ode(self):
         pass
