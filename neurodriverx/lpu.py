@@ -1,5 +1,5 @@
 import copy
-import types
+from types import SimpleNamespace
 from collections import OrderedDict
 from .model import Model, modeldict, _Variable
 import numbers
@@ -9,14 +9,7 @@ import numpy as np
 import pycuda
 import pycuda.gpuarray as garray
 
-class Arr(object):
-    def __init__(self, arr, idx):
-        self.arr = arr
-        self.idx = idx
-    def __call__(self):
-        return self.arr[self.idx]
-    def __repr__(self):
-        return repr(self.__call__())
+from .aggregator import Arr, AggregatorCPU, AggregatorGPU
 
 def get_all_subclasses(cls):
     all_subclasses = {}
@@ -325,29 +318,37 @@ class LPU(object):
             instance.compile(backend=self.backend)
             dct['instance'] = instance
 
+    def _instantiate_aggregator(self):
+        if self.backend == 'pycuda':
+            Aggregator = AggregatorGPU
+        else:
+            Aggregator = AggregatorCPU
+
+        for model, dct in self.models.items():
+            dct['aggregator'] = {}
+            instance = dct['instance']
+            for key, val in dct['input'].items():
+                dct['aggregator'][key] = Aggregator(val.ptr, val.offset,
+                    val.num, instance[key])
+
     def compile(self, backend='numpy', dtype=np.float64):
         self.backend = backend
         self.dtype = dtype
 
         self._serialize_model_attributes()
 
-        self._serialize_model_inputs()
-
         self._allocate_data_memory()
 
         self._instantiate_model()
 
+        self._serialize_model_inputs()
+
+        self._instantiate_aggregator()
+
     def _aggregate_input(self):
         for dct in self.models.values():
-            instance = dct['instance']
-            for key, val in dct['input'].items():
-                for i, (n, o) in enumerate(zip(val.num, val.offset)):
-                    if n == 0:
-                        continue
-                    total = 0.
-                    for j in range(o, o+n):
-                        total += val.ptr[j]()
-                    instance[key][i] = total
+            for val in dct['aggregator'].items():
+                val.update()
 
     def update(self, dt):
         self._aggregate_input()
