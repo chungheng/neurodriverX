@@ -9,7 +9,7 @@ class Arr(object):
         return repr(self.__call__())
 
 class AggregatorCPU(object):
-    def __init__(self, array, offest, num, output):
+    def __init__(self, array, offset, num, output):
         """
         Parameters:
         arrays (list) : list of ndarray or pycuda.gpuarray
@@ -29,3 +29,16 @@ class AggregatorCPU(object):
             for j in range(o, o+n):
                 total += self.array[j]()
             self.output[i] = total
+
+class AggregatorGPU(object):
+    def __init__(self, array, offset, num, output):
+        """
+        Parameters:
+        arrays (list) : list of ndarray or pycuda.gpuarray
+        indices (list) : index for the array
+        offsets (list) :
+        """
+        self.array = array
+        self.offset = offset
+        self.num = num
+        self.output = output
