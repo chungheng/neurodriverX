@@ -449,26 +449,31 @@ class CudaKernelGenerator(object):
         """
         Handle signature for cuda kernel, and export/import for global memory
         """
-        output = SimpleNamespace(read = [], write = [], signature = [])
-        output.signature.append(["int num_tread", "{} dt".format(self.dtype)])
+        output = SimpleNamespace(args=[], read=[], write=[], signature=[])
+        output.signature.extend(["int num_thread", "{} dt".format(self.dtype)])
 
         for key in self.instance.state.keys():
+            output.args.append(key)
             output.signature.append("{} *g_{}".format(self.dtype, key))
             output.read.append("g_{0}[tid] = state.{0};".format(key))
             output.write.append("state.{0} = g_{0}[tid];".format(key))
 
         for key in self.instance.inter.keys():
+            output.args.append(key)
             output.signature.append("{} *g_{}".format(self.dtype, key))
             output.read.append("g_{0}[tid] = inter.{0};".format(key))
             output.write.append("inter.{0} = g_{0}[tid];".format(key))
 
-        template = "{0} {1} = g_{1}[tid];"
+        s_template = "{} *g_{}"
+        r_template = "{0} {1} = g_{1}[tid];"
         for key in param_nonconst.keys():
-            output.signature.append("{} *g_{}".format(self.dtype, key.upper()))
-            output.read.append(template.format(self.dtype, key.upper()))
+            output.args.append(key)
+            output.signature.append(s_template.format(self.dtype, key.upper()))
+            output.read.append(r_template.format(self.dtype, key.upper()))
 
         for key in self.instance.input.keys():
-            output.signature.append("{} *g_{}".format(self.dtype, key.upper()))
-            output.read.append(template.format(self.dtype, key) )
+            output.args.append(key)
+            output.signature.append(s_template.format(self.dtype, key))
+            output.read.append(r_template.format(self.dtype, key) )
 
         return output
