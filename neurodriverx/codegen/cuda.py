@@ -367,13 +367,13 @@ class CudaKernelGenerator(object):
         forward = self.generate_forward(funcs['ode'], clip.invocation)
         kernel_io = self.generate_kernel_io(param_nonconst)
 
-        if issubclass(instance, type):
+        if isinstance(instance, type):
             model = instance
         else:
             model = instance.__class__
         name = model.__name__
 
-        self.src_kernel_definition = template_cuda_kernel.render(
+        self.src = template_cuda_kernel.render(
             preprocessing_definition = preprocessing,
             struct_definition = struct.definition,
             clip_definition = clip.definition,
@@ -387,6 +387,8 @@ class CudaKernelGenerator(object):
             post_invocation = funcs['post'].invocation,
             export_data = kernel_io.write
         )
+        self.args = kernel_io.args
+        self.arg_ctype = 'i' + self.dtype[0] + 'P'*len(kernel_io.args)
 
     def generate_preprocessing(self, param_constant):
         src = template_define_preprocessing.render(
