@@ -357,8 +357,9 @@ class CudaKernelGenerator(object):
 
         for name in funcs.keys():
             f = getattr(instance, name)
-            funcs[name] = CudaFuncGenerator(f , instance.locals[name],
-                instance.vars, param_nonconst)
+            local = instance.locals.get(name, dict())
+            funcs[name] = CudaFuncGenerator(f, local, instance.vars,
+                param_nonconst)
 
         preprocessing = self.generate_preprocessing(param_constant)
         struct = self.generate_struct()
