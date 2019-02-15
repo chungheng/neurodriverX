@@ -148,13 +148,26 @@ class Model(with_metaclass(ModelMetaClass, object)):
     def post(self):
         pass
 
-    def update(self, dt, **kwargs):
+    def _update_cpu(self, dt, **kwargs):
         self._ode(**kwargs)
 
         for key, val in self.grad.items():
             self.state[key] += dt*val
 
         self._post()
+
+    def _update_gpu(self, d_t):
+        self.gpu.kernel.prepared_async_call(
+            self.gpu.grid,
+            self.gpu.block,
+            None,
+            d_t*self.time_scale,
+            self.gpu.num,
+            *self.gpu.arg_address)
+
+    def update(self, dt, **kwargs):
+        pass
+
 
 class modeldict(collections.MutableMapping):
     """A dictionary that applies an arbitrary key-altering
