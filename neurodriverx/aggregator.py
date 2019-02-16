@@ -1,4 +1,6 @@
 
+import pycuda.gpuarray as garray
+
 class Arr(object):
     def __init__(self, arr, idx):
         self.arr = arr
@@ -42,3 +44,16 @@ class AggregatorGPU(object):
         self.offset = offset
         self.num = num
         self.output = output
+
+        ptr = np.zeros(len(self.array), dtype=np.int64)
+
+        for i, arr in self.array:
+            ptr[i] = arr.arr.gpudata + arr.arr.dtype.itemsize*arr.idx
+
+        self.ptr = garray.to_gpu(ptr)
+
+        self.kernel = None
+
+    def update(self):
+        # TODO
+        self.kernel.prepared_async_call()
