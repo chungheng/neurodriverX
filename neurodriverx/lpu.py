@@ -279,7 +279,7 @@ class LPU(object):
             imodel = self.graph.nodes[v]['model']
             odct, idct = self.models[omodel], self.models[imodel]
 
-            arr = Arr(odct[data['output']], odct['id2idx'][u])
+            arr = {'array':odct[data['output']], 'index':odct['id2idx'][u]}
 
             iattr = data['input']
             if iattr not in idct['input']:
@@ -290,11 +290,13 @@ class LPU(object):
         for _dct in self.models.values():
             dct = _dct['input']
             for key, val in dct.items():
-                num = [len(x) for x in val]
+                dct[key] = {}
+                dct[key]['num'] = [len(x) for x in val]
                 offset = np.cumsum(num)
-                offset = [0] + offset[:-1].tolist()
-                ptr = sum(val, [])
-                dct[key] = SimpleNamespace(ptr=ptr, num=num, offset=offset)
+                dct[key]['offset'] = [0] + offset[:-1].tolist()
+                lst = sum(val, [])
+                dct[key]['array'] = [x['array'] for x in lst]
+                dct[key]['index'] = [x['index'] for x in lst]
 
     def _allocate_data_memory(self):
         if self.backend == 'numpy':
@@ -328,8 +330,7 @@ class LPU(object):
             dct['aggregator'] = {}
             instance = dct['instance']
             for key, val in dct['input'].items():
-                dct['aggregator'][key] = Aggregator(val.ptr, val.offset,
-                    val.num, instance[key])
+                dct['aggregator'][key] = Aggregator(output=instance[key], **val)
 
     def compile(self, backend='numpy', dtype=np.float64):
         self.backend = backend
