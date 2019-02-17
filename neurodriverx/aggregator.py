@@ -1,9 +1,9 @@
 
 import pycuda.gpuarray as garray
 
-class Arr(object):
+class ProxyArray(object):
     def __init__(self, arr, idx):
-        self.arr = arr
+        self.array = array
         self.idx = idx
     def __call__(self):
         return self.arr[self.idx]
@@ -11,7 +11,7 @@ class Arr(object):
         return repr(self.__call__())
 
 class AggregatorCPU(object):
-    def __init__(self, array, offset, num, output):
+    def __init__(self, array, index, offset, num, output):
         """
         Parameters:
         arrays (list) : list of ndarray or pycuda.gpuarray
@@ -19,6 +19,7 @@ class AggregatorCPU(object):
         offsets (list) :
         """
         self.array = array
+        self.index = index
         self.offset = offset
         self.num = num
         self.output = output
@@ -29,7 +30,7 @@ class AggregatorCPU(object):
                 continue
             total = 0.
             for j in range(o, o+n):
-                total += self.array[j]()
+                total += self.array[j]
             self.output[i] = total
 
 class AggregatorGPU(object):
@@ -41,14 +42,15 @@ class AggregatorGPU(object):
         offsets (list) :
         """
         self.array = array
+        self.index = index
         self.offset = offset
         self.num = num
         self.output = output
 
         ptr = np.zeros(len(self.array), dtype=np.int64)
 
-        for i, arr in self.array:
-            ptr[i] = arr.arr.gpudata + arr.arr.dtype.itemsize*arr.idx
+        for i, (arrary, index) in zip(self.array, self.index):
+            ptr[i] = array.gpudata + array.dtype.itemsize*index
 
         self.ptr = garray.to_gpu(ptr)
 
