@@ -287,17 +287,6 @@ class LPU(object):
             idx = idct['id2idx'][v]
             idct['input'][iattr][idx].append(arr)
 
-        for _dct in self.models.values():
-            dct = _dct['input']
-            for key, val in dct.items():
-                dct[key] = {}
-                dct[key]['num'] = [len(x) for x in val]
-                offset = np.cumsum(num)
-                dct[key]['offset'] = [0] + offset[:-1].tolist()
-                lst = sum(val, [])
-                dct[key]['array'] = [x['array'] for x in lst]
-                dct[key]['index'] = [x['index'] for x in lst]
-
     def _allocate_model_memory(self):
         for model, dct in self.models.items():
             for key in model.vars:
@@ -317,16 +306,12 @@ class LPU(object):
             dct['instance'] = instance
 
     def _instantiate_aggregator(self):
-        if self.backend == 'pycuda':
-            Aggregator = AggregatorGPU
-        else:
-            Aggregator = AggregatorCPU
+        Agg = AggregatorGPU if self.backend == 'pycuda' else AggregatorCPU
 
         for model, dct in self.models.items():
             dct['aggregator'] = {}
-            instance = dct['instance']
             for key, val in dct['input'].items():
-                dct['aggregator'][key] = Aggregator(output=instance[key], **val)
+                dct['aggregator'][key] = Agg(input=dct[key], output=val)
 
     def compile(self, backend='numpy', dtype=np.float64):
         self.backend = backend

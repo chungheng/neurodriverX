@@ -11,18 +11,20 @@ class ProxyArray(object):
         return repr(self.__call__())
 
 class AggregatorCPU(object):
-    def __init__(self, array, index, offset, num, output):
+    def __init__(self, input, output):
         """
+        Aggregate outputs of units and feeds the result as input to other units.
+
         Parameters:
-        arrays (list) : list of ndarray or pycuda.gpuarray
-        indices (list) : index for the array
-        offsets (list) :
+        output (list) : list of dict of the form {'index': ..., 'array': ...}.
+        input (ndarray or pycuda.gpuarray) : input to a model.
         """
-        self.array = array
-        self.index = index
-        self.offset = offset
-        self.num = num
-        self.output = output
+
+        self.num = [len(x) for x in output]
+        self.offset = np.cumsum(num) - self.num[0]
+        self.array = [x['array'] for x in output]
+        self.index = [x['index'] for x in output]
+        self.input = input
 
     def update(self):
         for i, (n, o) in enumerate(zip(self.num, self.offset)):
@@ -30,22 +32,20 @@ class AggregatorCPU(object):
                 continue
             total = 0.
             for j in range(o, o+n):
-                total += self.array[j]
+                total += self.array[j][self.index[j]]
             self.output[i] = total
 
-class AggregatorGPU(object):
-    def __init__(self, array, offset, num, output):
+class AggregatorGPU(AggregatorCPU):
+    def __init__(self, input, output):
         """
+        Aggregate outputs of units and feeds the result as input to other units.
+
         Parameters:
-        arrays (list) : list of ndarray or pycuda.gpuarray
-        indices (list) : index for the array
-        offsets (list) :
+        output (list) : list of dict of the form {'index': ..., 'array': ...}.
+        input (ndarray or pycuda.gpuarray) : input to a model.
         """
-        self.array = array
-        self.index = index
-        self.offset = offset
-        self.num = num
-        self.output = output
+
+        super(AggregatorGPU, self).__init__(input=input, output=output)
 
         ptr = np.zeros(len(self.array), dtype=np.int64)
 
