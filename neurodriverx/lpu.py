@@ -298,19 +298,15 @@ class LPU(object):
                 dct[key]['array'] = [x['array'] for x in lst]
                 dct[key]['index'] = [x['index'] for x in lst]
 
-    def _allocate_data_memory(self):
-        if self.backend == 'numpy':
-            for model, dct in self.models.items():
-                for key in model.vars:
-                    val = dct[key]
-                    if hasattr(val, '__len__'):
-                        dct[key] = np.asarray(val)
-        elif self.backend == 'pycuda':
-            for model, dct in self.models.items():
-                for key in model.vars:
-                    val = dct[key]
-                    if hasattr(val, '__len__'):
-                        arr = np.asarray(val, dtype=self.dtype)
+    def _allocate_model_memory(self):
+        for model, dct in self.models.items():
+            for key in model.vars:
+                val = dct[key]
+                if hasattr(val, '__len__'):
+                    arr = np.asarray(val, dtype=self.dtype)
+                    if self.backend == 'numpy':
+                        dct[key] = arr
+                    elif self.backend == 'pycuda':
                         dct[key] = garray.to_gpu(arr)
 
     def _instantiate_model(self):
@@ -338,7 +334,7 @@ class LPU(object):
 
         self._serialize_model_attributes()
 
-        self._allocate_data_memory()
+        self._allocate_model_memory()
 
         self._instantiate_model()
 
