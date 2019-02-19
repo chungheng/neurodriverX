@@ -8,9 +8,6 @@ import pycuda.gpuarray as garray
 from pycuda.tools import DeviceData
 from pycuda.compiler import SourceModule
 
-
-
-
 template_gpu_aggregate = Template("""
 __global__ void aggregate(
     int num_thread,
@@ -98,8 +95,7 @@ class AggregatorCPU(object):
         """
 
         self.num = np.asarray([len(x) for x in output])
-        self.offset = np.cumsum(self.num) - self.num[0]
-
+        self.offset = np.concatenate(([0], np.cumsum(self.num[:-1])))
         merged = sum(output, [])
         self.array = [x['array'] for x in merged]
         self.index = [x['index'] for x in merged]
@@ -112,7 +108,7 @@ class AggregatorCPU(object):
             total = 0.
             for j in range(o, o+n):
                 total += self.array[j][self.index[j]]
-            self.output[i] = total
+            self.input[i] = total
 
 class AggregatorGPU(AggregatorCPU):
     def __init__(self, input, output):
