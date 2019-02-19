@@ -9,7 +9,7 @@ import numpy as np
 import pycuda
 import pycuda.gpuarray as garray
 
-from .aggregator import Arr, AggregatorCPU, AggregatorGPU
+from .aggregator import AggregatorCPU, AggregatorGPU
 
 def get_all_subclasses(cls):
     all_subclasses = {}
@@ -403,7 +403,6 @@ if __name__ == "__main__":
     a.add_neuron('1', 'LeakyIAF')
     a.add_neuron('2', 'LeakyIAF')
     a.add_neuron('3', LeakyIAF)
-    a.add_port('1',port='so', selector='xx')
     a.add_synapse('1--2', '1', '2', 'AlphaSynapse')
     a.write_gexf('temp.gexf')
 
