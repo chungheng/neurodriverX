@@ -145,6 +145,18 @@ class AggregatorGPU(AggregatorCPU):
 
         self.kernel = kernel
 
+        self.block = (32, 32, 1)
+        self.grid = (int((self.num_thread - 1) / 32) + 1, 1)
+
     def update(self):
         # TODO
-        self.kernel.prepared_async_call()
+        self.kernel.prepared_async_call(
+            self.grid,
+            self.block,
+            None,
+            self.num_thread,
+            self.ptr.gpudata,
+            self.num.gpudata,
+            self.offset.gpudata,
+            self.input.gpudata
+        )
