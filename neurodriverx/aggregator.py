@@ -121,17 +121,18 @@ class AggregatorGPU(AggregatorCPU):
         """
 
         super(AggregatorGPU, self).__init__(input=input, output=output)
+        dtype = 'float' if self.input.dtype == np.float32 else 'double'
 
         ptr = np.zeros(len(self.array), dtype=np.int64)
-
         for i, (array, index) in enumerate(zip(self.array, self.index)):
             ptr[i] = int(array.gpudata) + array.dtype.itemsize*index
 
         self.ptr = garray.to_gpu(ptr)
-        self.offset = garray.to_gpu(self.offset)
-        self.num = garray.to_gpu(self.num)
+        self.offset = garray.to_gpu(self.offset.astype(np.int32))
+        self.num = garray.to_gpu(self.num.astype(np.int32))
+        self.num_thread = len(self.input)
 
-        dtype = 'float' if self.input.dtype == np.float32 else 'double'
+
         src = template_gpu_aggregate.render(dtype = dtype)
         try:
             mod = SourceModule(src, options = ["--ptxas-options=-v"])
