@@ -42,7 +42,7 @@ __global__ void aggregate(
     if (uid < num_thread) {
         r_num = s_num[tidy];
         r_offset = s_offset[tidy];
-        for (int i = r_offset+tidx; i < r_num; i += 32) {
+        for (int i = r_offset+tidx; i < r_offset+r_num; i += 32) {
             ptr = output[i];
             input[tidy][tidx] += *ptr;
        }
